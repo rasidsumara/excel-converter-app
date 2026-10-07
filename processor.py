@@ -9,22 +9,33 @@ def process_and_transform_excel(uploaded_files):
             # Excel file read karein
             df = pd.read_excel(uploaded_file)
 
-            # Excel Columns Clean / Strip
+            # Column names clean karein
             df.columns = df.columns.astype(str).str.strip()
 
-            # Pandas me 0-indexed hota hai:
-            # Column J = 10th Column (Index 9) -> e.g. 'TO Sales Ord.' / Batch / Quantity
-            # Column Z = 26th Column (Index 25) -> e.g. 'Material' / Coating Number
-            # Column C = 3rd Column (Index 2) -> 'No of PCS' ya 'Quantity' / 'MvT'
+            # Columns by Index (0-indexed in Pandas):
+            # Column C = Index 2  ('No of PCS' / Quantity values)
+            # Column J = Index 9  ('TO Sales Ord.')
+            # Column K = Index 10 ('TO SO item')
+            # Column Z = Index 25 ('Material' / Specification / Unique ID)
 
-            # Column Names identify karein (By Index ya By Header)
-            col_j = df.iloc[:, 9] if df.shape[1] > 9 else None  # Column J
-            col_z = df.iloc[:, 25] if df.shape[1] > 25 else None  # Column Z
-            col_c = df.iloc[:, 2] if df.shape[1] > 2 else None  # Column C (Values)
+            col_c = df.iloc[:, 2] if df.shape[1] > 2 else None
+            col_j = df.iloc[:, 9] if df.shape[1] > 9 else None
+            col_k = df.iloc[:, 10] if df.shape[1] > 10 else None
+            col_z = df.iloc[:, 25] if df.shape[1] > 25 else None
 
-            if col_j is not None and col_z is not None and col_c is not None:
+            if (
+                col_c is not None
+                and col_j is not None
+                and col_k is not None
+                and col_z is not None
+            ):
                 temp_df = pd.DataFrame(
-                    {"Col_J": col_j, "Col_Z": col_z, "Value_C": col_c}
+                    {
+                        "Col_J": col_j,
+                        "Col_K": col_k,
+                        "Col_Z": col_z,
+                        "Value_C": col_c,
+                    }
                 )
                 all_rows.append(temp_df)
 
@@ -34,17 +45,15 @@ def process_and_transform_excel(uploaded_files):
     if not all_rows:
         return pd.DataFrame()
 
-    # Sabhi uploaded files ke rows ko combine karein
+    # Sabhi files ke rows combine karein
     combined_df = pd.concat(all_rows, ignore_index=True)
 
-    # Values ko Numeric me convert karein
+    # Values ko numeric convert karein
     combined_df["Value_C"] = pd.to_numeric(
         combined_df["Value_C"], errors="coerce"
     ).fillna(0)
 
-    # Positive aur Negative values ko segregating logic:
-    # Positive values -> Column C me Sum
-    # Negative values -> Column D me Sum (-1, -1 = -2)
+    # Positive aur Negative values filter logic
     combined_df["Pos_Value"] = combined_df["Value_C"].apply(
         lambda x: x if x > 0 else 0
     )
@@ -52,24 +61,25 @@ def process_and_transform_excel(uploaded_files):
         lambda x: x if x < 0 else 0
     )
 
-    # Column Z par Grouping (Duplicate values merged into 1 single row)
-    # Grouping ke waqt Col_J ki pehli value legi, Pos_Value & Neg_Value sum honge
+    # Grouping by Column Z (Col_Z duplicates merge hokar single row banenge)
     grouped_df = (
         combined_df.groupby("Col_Z", as_index=False)
         .agg(
             {
-                "Col_J": "first",  # Column J ka data
-                "Pos_Value": "sum",  # Positive values sum
-                "Neg_Value": "sum",  # Negative values sum
+                "Col_J": "first",  # Column J data
+                "Col_K": "first",  # Column K data (so item)
+                "Pos_Value": "sum",  # Positive sum
+                "Neg_Value": "sum",  # Negative sum
             }
         )
         .reset_index(drop=True)
     )
 
-    # Output Format (New Excel Structure)
+    # Final Columns Alignment (A, B, C, D, E)
     final_df = pd.DataFrame(
         {
             "Column A (Col J)": grouped_df["Col_J"],
+            "so item": grouped_df["Col_K"],
             "Column B (Col Z)": grouped_df["Col_Z"],
             "Column C (Pos Sum)": grouped_df["Pos_Value"],
             "Column D (Neg Sum)": grouped_df["Neg_Value"],
