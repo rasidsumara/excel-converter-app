@@ -6,29 +6,24 @@ def process_and_transform_excel(uploaded_files):
 
     for uploaded_file in uploaded_files:
         try:
-            # Excel file read karein
+            # Excel read karein
             df = pd.read_excel(uploaded_file)
 
-            # Column names clean karein
-            df.columns = df.columns.astype(str).str.strip()
+            # Strip column whitespace
+            df.columns = [str(col).strip() for col in df.columns]
 
-            # Columns by Index (0-indexed in Pandas):
-            # Column C = Index 2  ('No of PCS' / Quantity values)
-            # Column J = Index 9  ('TO Sales Ord.')
-            # Column K = Index 10 ('TO SO item')
-            # Column Z = Index 25 ('Material' / Specification / Unique ID)
+            # Index-based column selection (0-indexed):
+            # Column C = Index 2  (PCS / Quantity values)
+            # Column J = Index 9  (TO Sales Ord.)
+            # Column K = Index 10 (TO SO item)
+            # Column Z = Index 25 (Material / Unique ID)
 
-            col_c = df.iloc[:, 2] if df.shape[1] > 2 else None
-            col_j = df.iloc[:, 9] if df.shape[1] > 9 else None
-            col_k = df.iloc[:, 10] if df.shape[1] > 10 else None
-            col_z = df.iloc[:, 25] if df.shape[1] > 25 else None
+            if df.shape[1] > 25:
+                col_c = df.iloc[:, 2]
+                col_j = df.iloc[:, 9]
+                col_k = df.iloc[:, 10]
+                col_z = df.iloc[:, 25]
 
-            if (
-                col_c is not None
-                and col_j is not None
-                and col_k is not None
-                and col_z is not None
-            ):
                 temp_df = pd.DataFrame(
                     {
                         "Col_J": col_j,
@@ -45,18 +40,22 @@ def process_and_transform_excel(uploaded_files):
     if not all_rows:
         return pd.DataFrame()
 
-    # Sabhi files ke rows combine karein
+    # Combine all data
     combined_df = pd.concat(all_rows, ignore_index=True)
 
-    # Values ko numeric convert karein taaki SUM ho sake
-    combined_df["Value_C"] = pd.to_numeric(
-        combined_df["Value_C"], errors="coerce"
-    ).fillna(0)
-    combined_df["Col_K"] = pd.to_numeric(
-        combined_df["Col_K"], errors="coerce"
-    ).fillna(0)
+    # Clean and Convert to strictly Numeric numbers for math operations
+    combined_df["Value_C"] = (
+        pd.to_numeric(combined_df["Value_C"], errors="coerce")
+        .fillna(0)
+        .astype(float)
+    )
+    combined_df["Col_K"] = (
+        pd.to_numeric(combined_df["Col_K"], errors="coerce")
+        .fillna(0)
+        .astype(float)
+    )
 
-    # Positive aur Negative values filter logic (Column C ke liye)
+    # Positive and Negative separation for Column C values
     combined_df["Pos_Value"] = combined_df["Value_C"].apply(
         lambda x: x if x > 0 else 0
     )
@@ -64,24 +63,24 @@ def process_and_transform_excel(uploaded_files):
         lambda x: x if x < 0 else 0
     )
 
-    # Grouping by Column Z (Material):
-    # - Col_J: Pehli Order Value
-    # - Col_K: SUM of all values (e.g. 50+50 = 100, 10+10+20+30+10+10+10 = 100)
-    # - Pos_Value & Neg_Value: SUM of positive/negative values
+    # Grouping by Column Z (Material Name):
+    # - Col_J: Pehli row ka value (TO Sales Ord)
+    # - Col_K: SUM of all SO Items (e.g., 50 + 50 = 100)
+    # - Pos_Value & Neg_Value: SUM of Positive/Negative Values
     grouped_df = (
         combined_df.groupby("Col_Z", as_index=False)
         .agg(
             {
-                "Col_J": "first",  # Column J data
-                "Col_K": "sum",  # Column K (so item) ka SUM
-                "Pos_Value": "sum",  # Positive sum (Column C)
-                "Neg_Value": "sum",  # Negative sum (Column C)
+                "Col_J": "first",
+                "Col_K": "sum",  # Force Sum on Column K
+                "Pos_Value": "sum",
+                "Neg_Value": "sum",
             }
         )
         .reset_index(drop=True)
     )
 
-    # Final Output Columns Alignment
+    # Resulting Clean Output Frame
     final_df = pd.DataFrame(
         {
             "Column A (Col J)": grouped_df["Col_J"],
