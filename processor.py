@@ -48,12 +48,15 @@ def process_and_transform_excel(uploaded_files):
     # Sabhi files ke rows combine karein
     combined_df = pd.concat(all_rows, ignore_index=True)
 
-    # Values ko numeric convert karein
+    # Values ko numeric convert karein taaki SUM ho sake
     combined_df["Value_C"] = pd.to_numeric(
         combined_df["Value_C"], errors="coerce"
     ).fillna(0)
+    combined_df["Col_K"] = pd.to_numeric(
+        combined_df["Col_K"], errors="coerce"
+    ).fillna(0)
 
-    # Positive aur Negative values filter logic
+    # Positive aur Negative values filter logic (Column C ke liye)
     combined_df["Pos_Value"] = combined_df["Value_C"].apply(
         lambda x: x if x > 0 else 0
     )
@@ -61,21 +64,24 @@ def process_and_transform_excel(uploaded_files):
         lambda x: x if x < 0 else 0
     )
 
-    # Grouping by Column Z (Col_Z duplicates merge hokar single row banenge)
+    # Grouping by Column Z (Material):
+    # - Col_J: Pehli Order Value
+    # - Col_K: SUM of all values (e.g. 50+50 = 100, 10+10+20+30+10+10+10 = 100)
+    # - Pos_Value & Neg_Value: SUM of positive/negative values
     grouped_df = (
         combined_df.groupby("Col_Z", as_index=False)
         .agg(
             {
                 "Col_J": "first",  # Column J data
-                "Col_K": "first",  # Column K data (so item)
-                "Pos_Value": "sum",  # Positive sum
-                "Neg_Value": "sum",  # Negative sum
+                "Col_K": "sum",  # Column K (so item) ka SUM
+                "Pos_Value": "sum",  # Positive sum (Column C)
+                "Neg_Value": "sum",  # Negative sum (Column C)
             }
         )
         .reset_index(drop=True)
     )
 
-    # Final Columns Alignment (A, B, C, D, E)
+    # Final Output Columns Alignment
     final_df = pd.DataFrame(
         {
             "Column A (Col J)": grouped_df["Col_J"],
