@@ -6,17 +6,17 @@ def process_and_transform_excel(uploaded_files):
 
     for uploaded_file in uploaded_files:
         try:
-            # Excel read karein
+            # Excel file read karein
             df = pd.read_excel(uploaded_file)
 
-            # Strip column whitespace
+            # Header whitespace clean karein
             df.columns = [str(col).strip() for col in df.columns]
 
-            # Index-based column selection (0-indexed):
-            # Column C = Index 2  (PCS / Quantity values)
+            # Index-based Column Mapping:
+            # Column C = Index 2  (No of PCS / Quantity values)
             # Column J = Index 9  (TO Sales Ord.)
             # Column K = Index 10 (TO SO item)
-            # Column Z = Index 25 (Material / Unique ID)
+            # Column Z = Index 25 (Material)
 
             if df.shape[1] > 25:
                 col_c = df.iloc[:, 2]
@@ -43,14 +43,9 @@ def process_and_transform_excel(uploaded_files):
     # Combine all data
     combined_df = pd.concat(all_rows, ignore_index=True)
 
-    # Clean and Convert to strictly Numeric numbers for math operations
+    # Column C value ko numeric convert karein taaki Positive/Negative SUM ho sake
     combined_df["Value_C"] = (
         pd.to_numeric(combined_df["Value_C"], errors="coerce")
-        .fillna(0)
-        .astype(float)
-    )
-    combined_df["Col_K"] = (
-        pd.to_numeric(combined_df["Col_K"], errors="coerce")
         .fillna(0)
         .astype(float)
     )
@@ -63,24 +58,15 @@ def process_and_transform_excel(uploaded_files):
         lambda x: x if x < 0 else 0
     )
 
-    # Grouping by Column Z (Material Name):
-    # - Col_J: Pehli row ka value (TO Sales Ord)
-    # - Col_K: SUM of all SO Items (e.g., 50 + 50 = 100)
-    # - Pos_Value & Neg_Value: SUM of Positive/Negative Values
+    # Grouping by Unique combination of (Col_J, Col_K, Col_Z)
+    # Isse J aur K ki unique values preserve rahengi aur duplicate rows aggregate ho jayengi
     grouped_df = (
-        combined_df.groupby("Col_Z", as_index=False)
-        .agg(
-            {
-                "Col_J": "first",
-                "Col_K": "sum",  # Force Sum on Column K
-                "Pos_Value": "sum",
-                "Neg_Value": "sum",
-            }
-        )
+        combined_df.groupby(["Col_J", "Col_K", "Col_Z"], as_index=False)
+        .agg({"Pos_Value": "sum", "Neg_Value": "sum"})
         .reset_index(drop=True)
     )
 
-    # Resulting Clean Output Frame
+    # Final Downloadable DataFrame Output
     final_df = pd.DataFrame(
         {
             "Column A (Col J)": grouped_df["Col_J"],
