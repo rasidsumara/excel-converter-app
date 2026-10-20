@@ -58,7 +58,7 @@ try:
     df_upto_date = df_raw[df_raw['Pstng Date'] <= selected_date].copy()
     df_today = df_raw[df_raw['Pstng Date'] == selected_date].copy()
 
-    # Helper function to generate DDR 4-row format without index errors
+    # Helper function to generate DDR 4-row format
     def create_ddr_format(base_df):
         metrics = [
             ('No of PCS', 'Sum of No of PCS'),
@@ -69,7 +69,6 @@ try:
         frames = []
         for col_name, label in metrics:
             if col_name in base_df.columns:
-                # Ensure numeric calculation
                 base_df[col_name] = pd.to_numeric(base_df[col_name], errors='coerce').fillna(0)
                 temp = base_df.groupby(group_cols, as_index=False)[col_name].sum()
                 temp['Values'] = label
@@ -100,17 +99,21 @@ try:
 
         master_keys = group_cols + ['Values']
         
-        # Merge safely
         merged = inward_cum_df.merge(outward_cum_df, on=master_keys, how='outer')
         merged = merged.merge(inward_today_df, on=master_keys, how='left')
         merged = merged.merge(outward_today_df, on=master_keys, how='left')
         merged.fillna(0, inplace=True)
         
-        merged['Balance'] = merged['Total Inward Till Date'] - merged['Total Outward Till Date']
+        # Correct Balance Calculation (Outward is already negative in source data summation)
+        merged['Balance'] = merged['Total Inward Till Date'] + merged['Total Outward Till Date']
 
-        # Filter out rows where Balance <= 0 and Today movements are 0
+        # Strict Filtering: Keep only groups where PCS Balance > 0 or Today movements != 0
         pcs_rows = merged[merged['Values'] == 'Sum of No of PCS']
-        active_keys = pcs_rows[(pcs_rows['Balance'] > 0) | (pcs_rows['Today IN'] != 0) | (pcs_rows['Today OUT'] != 0)][group_cols]
+        active_keys = pcs_rows[
+            (pcs_rows['Balance'] > 0) | 
+            (pcs_rows['Today IN'] != 0) | 
+            (pcs_rows['Today OUT'] != 0)
+        ][group_cols]
 
         if not active_keys.empty:
             filtered_merged = merged.merge(active_keys, on=group_cols)
@@ -120,7 +123,7 @@ try:
         filtered_merged.sort_values(by=group_cols + ['Values'], inplace=True)
 
         st.dataframe(
-            filtered_merged[group_cols + ['Values', 'Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']],
+            filtered_merged[group_cols + ['Values', 'Total Inward Till Date', 'Total Outward Till Date', 'Today IN', 'Today OUT', 'Balance']],
             use_container_width=True,
             hide_index=True
         )
