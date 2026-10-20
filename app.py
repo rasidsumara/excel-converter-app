@@ -139,7 +139,7 @@ try:
             return pd.DataFrame()
         return pd.concat(list_dfs, ignore_index=True)
 
-    # Helper: Generate OpenPyXL Formatted Excel matching ddr formate structure
+    # Helper: Generate OpenPyXL Formatted Excel (Fixed Column Width Bug)
     def generate_excel_report(df_to_excel, title_text):
         wb = Workbook()
         ws = wb.active
@@ -185,10 +185,19 @@ try:
                 cell.border = thin_border
                 cell.alignment = Alignment(horizontal='left' if col_idx <= 8 else 'right', vertical='center')
 
+        # Safe Column Width Auto-fit (Avoiding MergedCell issues)
         for col in ws.columns:
-            max_length = max(len(str(cell.value or '')) for cell in col)
-            col_letter = col[0].column_letter
-            ws.column_dimensions[col_letter].width = max(max_length + 3, 12)
+            max_len = 0
+            col_letter = None
+            for cell in col:
+                if not col_letter and hasattr(cell, 'column_letter'):
+                    col_letter = cell.column_letter
+                if cell.row >= 4:  # Check length from headers onwards
+                    val_str = str(cell.value or '')
+                    if len(val_str) > max_len:
+                        max_len = len(val_str)
+            if col_letter:
+                ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
 
         excel_buffer = io.BytesIO()
         wb.save(excel_buffer)
@@ -265,7 +274,6 @@ try:
 
         disp_cols = group_cols + ['Values', 'Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']
         
-        # Calculate Grand Totals
         total_rows = []
         for v in metric_order:
             sub_v = res_df[res_df['Values'] == v]
@@ -562,8 +570,8 @@ try:
             st.download_button("📥 Download Pipe Balance (Excel .xlsx)", data=excel_buf, file_name=f"Pipe_Balance_{selected_date}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         with col2:
             pdf_buf = generate_pdf_report(bal_df, "Carbon Steel Pipe Balance")
-            st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"Pipe_Balance_{selected_date}.pdf", mime="application/pdf")
+            st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"{direction}_Register_{selected_date}.pdf" if 'direction' in locals() else f"Pipe_Balance_{selected_date}.pdf", mime="application/pdf")
 
 except Exception as e:
     st.error(f"Error executing application: {e}")
-    st.info("Ensure `Inward_Outward_FIXED_and_FAST.xlsx` is uploaded in the GitHub repository.")
+    st.info("Ensure `Inward_Outward_FIXED_and_FAST.xlsx` is uploaded in the GitHub repository root folder.")
