@@ -2,49 +2,54 @@ import streamlit as st
 import pandas as pd
 import datetime
 
-# Page Layout & Config
+# Page Configuration
 st.set_page_config(
-    page_title="Daily Dispatch & Logistics Report",
+    page_title="Jindal Saw Dispatch & Inventory Management",
     page_icon="📊",
     layout="wide"
 )
 
-st.title("📊 Daily Dispatch & Inventory Report (DDR Format)")
-st.caption("Jindal Saw Limited - Management Dispatch Control System")
+st.title("📊 Jindal Saw - Dynamic Dispatch & Inventory Report")
+st.caption("Management Control System (DDR, Plant/Product Summaries & Registers)")
 
 # Load Raw Data
 @st.cache_data
-def load_raw_data():
+def load_data():
     file_path = "Inward_Outward_FIXED_and_FAST.xlsx"
     df_raw = pd.read_excel(file_path, sheet_name="Inward-Outward Data")
     df_raw['Pstng Date'] = pd.to_datetime(df_raw['Pstng Date'], errors='coerce').dt.date
     return df_raw
 
 try:
-    df_raw = load_raw_data()
+    df_raw = load_data()
     
-    # Get available date range
+    # Date range setup
     valid_dates = df_raw['Pstng Date'].dropna()
     min_date = valid_dates.min() if not valid_dates.empty else datetime.date(2025, 1, 1)
     max_date = valid_dates.max() if not valid_dates.empty else datetime.date.today()
 
-    # Sidebar Date Selector & Controls
+    # Sidebar Controls
     st.sidebar.header("⚙️ Report Control Panel")
-    
     selected_date = st.sidebar.date_input(
-        "📅 Select Report Date:",
+        "📅 Select Report Cut-off Date:",
         value=max_date,
         min_value=min_date,
         max_value=max_date,
-        help="Iss date tak ka accurate cumulative aur daily movement calculate hoga."
+        help="Yeh date select karne par wahan tak ka live accurate report generate hoga."
     )
     
-    view_mode = st.sidebar.radio(
-        "Select Report View:",
-        ["Daily Dispatch Report (Full)", "Print Preview (Active & Positive Balance Only)"]
+    report_view = st.sidebar.radio(
+        "Select Report Format:",
+        [
+            "Daily Dispatch Report (Print Preview - Active & Positive Only)",
+            "Plant-wise Summary",
+            "Product-wise Summary",
+            "Inward Register",
+            "Outward Register"
+        ]
     )
 
-    # Clean data types to avoid merge errors
+    # Data cleaning for grouping
     df_raw['Thickness (mm)'] = pd.to_numeric(df_raw['Thickness (mm)'], errors='coerce').fillna(0)
     df_raw['OD'] = pd.to_numeric(df_raw['OD'], errors='coerce').fillna(0)
     df_raw['TO Sales Ord.'] = pd.to_numeric(df_raw['TO Sales Ord.'], errors='coerce').fillna(0).astype(int)
@@ -59,7 +64,7 @@ try:
         df_upto_date[col] = df_upto_date[col].astype(str)
         df_today[col] = df_today[col].astype(str)
 
-    # Helper function to melt into DDR 4-row format
+    # Helper function to generate DDR 4-row format
     def create_ddr_format(base_df):
         metrics = [
             ('No of PCS', 'Sum of No of PCS'),
@@ -67,7 +72,6 @@ try:
             ('Bare Pipe Weight(TO)', 'Sum of Bare Pipe Weight(TO)'),
             ('Coated Pipe Weight(TO)', 'Sum of Coated Pipe Weight(TO)')
         ]
-        
         frames = []
         for col_name, label in metrics:
             if col_name in base_df.columns:
@@ -80,72 +84,93 @@ try:
             return pd.DataFrame()
             
         combined = pd.concat(frames, ignore_index=True)
-        # Sort to keep the 4 metric rows together per group
-        combined['TO SO item'] = pd.to_numeric(combined['TO SO item'], errors='coerce')
-        combined['OD'] = pd.to_numeric(combined['OD'], errors='coerce')
-        combined['Thickness (mm)'] = pd.to_numeric(combined['Thickness (mm'], errors='coerce') if 'Thickness (mm' in combined.columns else combined['Thickness (mm)']
-        
         return combined
 
-    # Calculate Inward & Outward for Cumulative and Today
-    inward_today_df = create_ddr_format(df_today[df_today['Movement Direction'] == 'Inward'])
-    inward_today_df.rename(columns={'Metric_Val': 'Today IN'}, inplace=True)
+    # 1. Daily Dispatch Report View (DDR Print Preview Format)
+    if "Daily Dispatch Report" in report_view:
+        st.subheader(f"📋 Daily Dispatch Report — As of {selected_date.strftime('%d-%b-%Y')}")
+        st.info("Note: Zero balance and inactive rows are automatically hidden as per management print preview standard.")
 
-    inward_cum_df = create_ddr_format(df_upto_date[df_upto_date['Movement Direction'] == 'Inward'])
-    inward_cum_df.rename(columns={'Metric_Val': 'Total Inward Till Date'}, inplace=True)
+        inward_today_df = create_ddr_format(df_today[df_today['Movement Direction'] == 'Inward'])
+        inward_today_df.rename(columns={'Metric_Val': 'Today IN'}, inplace=True)
 
-    outward_today_df = create_ddr_format(df_today[df_today['Movement Direction'] == 'Outward'])
-    outward_today_df.rename(columns={'Metric_Val': 'Today OUT'}, inplace=True)
+        inward_cum_df = create_ddr_format(df_upto_date[df_upto_date['Movement Direction'] == 'Inward'])
+        inward_cum_df.rename(columns={'Metric_Val': 'Total Inward Till Date'}, inplace=True)
 
-    outward_cum_df = create_ddr_format(df_upto_date[df_upto_date['Movement Direction'] == 'Outward'])
-    outward_cum_df.rename(columns={'Metric_Val': 'Total Outward Till Date'}, inplace=True)
+        outward_today_df = create_ddr_format(df_today[df_today['Movement Direction'] == 'Outward'])
+        outward_today_df.rename(columns={'Metric_Val': 'Today OUT'}, inplace=True)
 
-    # Base skeleton from cumulative inward/outward
-    master_keys = group_cols + ['Values']
-    
-    # Merge all datasets safely using inner/outer joins on keys + Values
-    merged = inward_cum_df.merge(outward_cum_df, on=master_keys, how='outer')
-    merged = merged.merge(inward_today_df, on=master_keys, how='left')
-    merged = merged.merge(outward_today_df, on=master_keys, how='left')
-    
-    merged.fillna(0, inplace=True)
-    
-    # Calculate Balance
-    merged['Balance'] = merged['Total Inward Till Date'] - merged['Total Outward Till Date']
+        outward_cum_df = create_ddr_format(df_upto_date[df_upto_date['Movement Direction'] == 'Outward'])
+        outward_cum_df.rename(columns={'Metric_Val': 'Total Outward Till Date'}, inplace=True)
 
-    # Sort properly to match Excel DDR view
-    merged.sort_values(by=['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Values'], inplace=True)
+        master_keys = group_cols + ['Values']
+        merged = inward_cum_df.merge(outward_cum_df, on=master_keys, how='outer')
+        merged = merged.merge(inward_today_df, on=master_keys, how='left')
+        merged = merged.merge(outward_today_df, on=master_keys, how='left')
+        merged.fillna(0, inplace=True)
+        
+        merged['Balance'] = merged['Total Inward Till Date'] - merged['Total Outward Till Date']
 
-    if view_mode == "Print Preview (Active & Positive Balance Only)":
-        # Filter groups where Today IN != 0 or Today OUT != 0 or Balance > 0
-        active_groups = merged[
-            (merged['Today IN'] != 0) | 
-            (merged['Today OUT'] != 0) | 
-            (merged['Balance'] > 0)
-        ]
-        display_df = active_groups
-    else:
-        display_df = merged
+        # Filter out rows where Balance <= 0 and Today movements are 0
+        # To handle multi-metric rows properly per group, check group balance
+        balance_summary = merged[merged['Values'] == 'Sum of No of PCS'][['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Balance']]
+        active_groups = balance_summary[balance_summary['Balance'] > 0]
+        
+        # Also include groups with active today movement
+        today_summary = merged[(merged['Today IN'] != 0) | (merged['Today OUT'] != 0)][group_cols].drop_duplicates()
+        
+        valid_keys = pd.concat([active_groups[group_cols[:-1] if 'group_cols' in locals() else group_cols], today_summary]).drop_duplicates()
+        
+        filtered_merged = merged.merge(valid_keys, on=['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Valuation Class', 'OD', 'Thickness (mm)'])
+        filtered_merged.sort_values(by=['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Values'], inplace=True)
 
-    # Clean display formatting
-    st.subheader(f"📋 Daily Dispatch Report — As of {selected_date.strftime('%d-%b-%Y')}")
-    st.write(f"Total Rows Displayed: {len(display_df)}")
-    
-    st.dataframe(
-        display_df[['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Valuation Class', 'OD', 'Thickness (mm)', 'Values', 'Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']],
-        use_container_width=True,
-        hide_index=True
-    )
+        st.dataframe(
+            filtered_merged[['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Valuation Class', 'OD', 'Thickness (mm)', 'Values', 'Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']],
+            use_container_width=True,
+            hide_index=True
+        )
 
-    # Export Button for Management
-    csv_bytes = display_df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Download DDR Report (CSV)",
-        data=csv_bytes,
-        file_name=f"DDR_Report_{selected_date}.csv",
-        mime="text/csv"
-    )
+        csv_data = filtered_merged.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download Daily Dispatch Print Preview (CSV)", data=csv_data, file_name=f"DDR_Active_Balance_{selected_date}.csv", mime="text/csv")
+
+    # 2. Plant-wise Summary View
+    elif report_view == "Plant-wise Summary":
+        st.subheader(f"🏭 Plant-wise Summary — As of {selected_date.strftime('%d-%b-%Y')}")
+        plant_df = df_upto_date.groupby('Plnt', as_index=False).agg(
+            No_of_Pcs=('No of PCS', 'sum'),
+            Length_Mtr=('Total Length (Mtr )', 'sum'),
+            Coated_Weight_Mt=('Coated Pipe Weight(TO)', 'sum'),
+            Bare_Weight_Mt=('Bare Pipe Weight(TO)', 'sum')
+        )
+        plant_df['Net Weight (Mt)'] = plant_df['Coated_Weight_Mt'].where(plant_df['Coated_Weight_Mt'] > 0, plant_df['Bare_Weight_Mt'])
+        st.dataframe(plant_df, use_container_width=True, hide_index=True)
+
+    # 3. Product-wise Summary View
+    elif report_view == "Product-wise Summary":
+        st.subheader(f"📦 Product-wise Summary — As of {selected_date.strftime('%d-%b-%Y')}")
+        prod_col = 'Material' if 'Material' in df_upto_date.columns else 'Valuation Class'
+        prod_df = df_upto_date.groupby(prod_col, as_index=False).agg(
+            No_of_Pcs=('No of PCS', 'sum'),
+            Length_Mtr=('Total Length (Mtr )', 'sum'),
+            Coated_Weight_Mt=('Coated Pipe Weight(TO)', 'sum'),
+            Bare_Weight_Mt=('Bare Pipe Weight(TO)', 'sum')
+        )
+        prod_df['Net Weight (Mt)'] = prod_df['Coated_Weight_Mt'].where(prod_df['Coated_Weight_Mt'] > 0, prod_df['Bare_Weight_Mt'])
+        st.rename(columns={prod_col: 'Product Name'}, inplace=True)
+        st.dataframe(prod_df, use_container_width=True, hide_index=True)
+
+    # 4. Inward Register View
+    elif report_view == "Inward Register":
+        st.subheader(f"📥 Inward Register (Movements up to {selected_date.strftime('%d-%b-%Y')})")
+        inward_reg = df_upto_date[df_upto_date['Movement Direction'] == 'Inward']
+        st.dataframe(inward_reg[['Pstng Date', 'Batch', 'Customer Name', 'Plnt', 'No of PCS', 'Total Length (Mtr )', 'Bare Pipe Weight(TO)', 'MvT', 'User Name']], use_container_width=True, hide_index=True)
+
+    # 5. Outward Register View
+    elif report_view == "Outward Register":
+        st.subheader(f"📤 Outward Register (Shipments up to {selected_date.strftime('%d-%b-%Y')})")
+        outward_reg = df_upto_date[df_upto_date['Movement Direction'] == 'Outward']
+        st.dataframe(outward_reg[['Pstng Date', 'Batch', 'Customer Name', 'Plnt', 'No of PCS', 'Total Length (Mtr )', 'Bare Pipe Weight(TO)', 'MvT', 'User Name']], use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"Error in execution: {e}")
-    st.info("Kripya check karein ki 'Inward_Outward_FIXED_and_FAST.xlsx' file GitHub repo me properly uploaded hai.")
+    st.error(f"Error executing report: {e}")
+    st.info("Kripya verify karein ki Excel file GitHub repository me properly uploaded hai.")
