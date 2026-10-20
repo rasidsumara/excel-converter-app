@@ -225,4 +225,71 @@ try:
     # -------------------------------------------------------------
     elif "Inward Register" in report_type or "Outward Register" in report_type:
         direction = "Inward" if "Inward" in report_type else "Outward"
-        st.subheader(f"{'📥 Inward' if direction=='Inward' else '📤 Outward'} Register — As of
+        st.subheader(f"{'📥 Inward' if direction=='Inward' else '📤 Outward'} Register — As of {selected_date.strftime('%d-%b-%Y')}")
+        
+        reg_df = df_today[df_today['Movement Direction'] == direction].copy()
+        
+        cols_map = {
+            'Plnt': 'Plnt',
+            'Customer Name': 'Customer Name',
+            'Recipient': 'Destination',
+            'TO Sales Ord.': 'Sales Doc.',
+            'TO SO item': 'SO Item',
+            'Outer Diameter (inches)': 'OD (inch)',
+            'Thickness (mm)': 'Thickness (mm)',
+            'No of PCS': 'Nos',
+            'Total Length (Mtr )': 'Length (Mtr)',
+            'Coated Pipe Weight(TO)': 'Coat Weight (Mt)',
+            'Bare Pipe Weight(TO)': 'Bare Weight (Mt)'
+        }
+        
+        display_reg = pd.DataFrame()
+        for orig, target in cols_map.items():
+            display_reg[target] = reg_df[orig] if orig in reg_df.columns else ""
+            
+        display_reg['NET Weight (Mt)'] = display_reg['Coat Weight (Mt)'].where(display_reg['Coat Weight (Mt)'] > 0, display_reg['Bare Weight (Mt)'])
+        display_reg['Trip'] = display_reg['Nos'] # Approximated trip count
+        
+        # Bottom Total Row
+        total_row = {
+            'Plnt': 'TOTAL',
+            'Customer Name': '',
+            'Destination': '',
+            'Sales Doc.': '',
+            'SO Item': '',
+            'OD (inch)': '',
+            'Thickness (mm)': '',
+            'Nos': display_reg['Nos'].sum(),
+            'Length (Mtr)': display_reg['Length (Mtr)'].sum(),
+            'Coat Weight (Mt)': display_reg['Coat Weight (Mt)'].sum(),
+            'Bare Weight (Mt)': display_reg['Bare Weight (Mt)'].sum(),
+            'NET Weight (Mt)': display_reg['NET Weight (Mt)'].sum(),
+            'Trip': display_reg['Trip'].sum()
+        }
+        display_reg = pd.concat([display_reg, pd.DataFrame([total_row])], ignore_index=True)
+        st.dataframe(display_reg, use_container_width=True, hide_index=True)
+
+    # -------------------------------------------------------------
+    # VIEW 7: BALANCE PIPE REPORT
+    # -------------------------------------------------------------
+    elif "Balance Pipe Report" in report_type:
+        st.subheader(f"📦 Carbon Steel Pipe Balance — As of {selected_date.strftime('%d-%b-%Y')}")
+        bal_df = df_upto.groupby(['Customer Name', 'TO Sales Ord.', 'TO SO item', 'OD', 'Thickness (mm)', 'Material Number'], as_index=False).agg(
+            NOS=('No of PCS', 'sum'),
+            MTR=('Total Length (Mtr )', 'sum'),
+            MT=('Bare Pipe Weight(TO)', 'sum')
+        )
+        bal_df.rename(columns={
+            'Customer Name': 'CUST NAME',
+            'TO Sales Ord.': 'S.O. NUMBER',
+            'TO SO item': 'SO ITEM',
+            'OD': 'OD(MM)',
+            'Thickness (mm)': 'THK',
+            'Material Number': 'MATERIAL NUMBER'
+        }, inplace=True)
+        
+        st.dataframe(bal_df, use_container_width=True, hide_index=True)
+
+except Exception as e:
+    st.error(f"Error executing application: {e}")
+    st.info("Ensure `Inward_Outward_FIXED_and_FAST.xlsx` is uploaded in the GitHub repository.")
