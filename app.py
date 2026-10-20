@@ -45,8 +45,8 @@ try:
             "2. Monthly Stock Reconciliation (Opening / In / Out / Closing)",
             "3. Plant-wise Summary",
             "4. Product-wise Summary",
-            "5. Inward Register (Daily Movements)",
-            "6. Outward Register (Daily Shipments)",
+            "5. Inward Register (SO & Item Wise Sum)",
+            "6. Outward Register (SO & Item Wise Sum)",
             "7. Carbon Steel Pipe Balance"
         ]
     )
@@ -67,7 +67,6 @@ try:
         df_upto[c] = df_upto[c].fillna("").astype(str)
         df_today[c] = df_today[c].fillna("").astype(str)
 
-    # Fixed metric sequence matching exact screenshot
     metric_order = [
         'Sum of No of PCS',
         'Sum of Total Length (Mtr )',
@@ -75,7 +74,7 @@ try:
         'Sum of Coated Pipe Weight(TO)'
     ]
 
-    # Helper: Build DDR Pivot with exact 4-row order
+    # Helper: Build DDR Pivot
     def build_ddr_pivot(base_df):
         metrics = [
             ('No of PCS', 'Sum of No of PCS'),
@@ -96,7 +95,7 @@ try:
         return pd.concat(list_dfs, ignore_index=True)
 
     # -------------------------------------------------------------
-    # VIEW 1: PRINT PREVIEW (POSITIVE BALANCE ONLY, NO MINUS BALANCE)
+    # VIEW 1: PRINT PREVIEW (POSITIVE BALANCE ONLY)
     # -------------------------------------------------------------
     if "Print Preview" in report_type:
         st.subheader(f"📋 Daily Dispatch Print Preview — As of {selected_date.strftime('%d-%b-%Y')}")
@@ -113,10 +112,8 @@ try:
         m_ddr = m_ddr.merge(out_today, on=m_keys, how='left')
         m_ddr.fillna(0, inplace=True)
 
-        # Balance calculation (Outward values are negative in source data)
         m_ddr['Balance'] = m_ddr['Total Inward Till Date'] + m_ddr['Total Outward Till Date']
 
-        # Filter strictly for positive balance only (Balance > 0 for No of PCS)
         pcs_m = m_ddr[m_ddr['Values'] == 'Sum of No of PCS']
         positive_keys = pcs_m[pcs_m['Balance'] > 0][group_cols]
 
@@ -125,13 +122,11 @@ try:
         else:
             res_df = pd.DataFrame(columns=m_ddr.columns)
 
-        # Sort to preserve exact 4-row order per item
         res_df['Values_Cat'] = pd.Categorical(res_df['Values'], categories=metric_order, ordered=True)
         res_df.sort_values(by=group_cols + ['Values_Cat'], inplace=True)
 
         disp_cols = group_cols + ['Values', 'Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']
         
-        # Format zeros as "-"
         formatted_df = res_df[disp_cols].copy()
         num_fields = ['Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']
         for col in num_fields:
@@ -143,26 +138,21 @@ try:
         st.download_button("📥 Download Print Preview (CSV)", data=csv_bytes, file_name=f"DDR_Positive_Balance_{selected_date}.csv", mime="text/csv")
 
     # -------------------------------------------------------------
-    # VIEW 2: MONTHLY STOCK RECONCILIATION REPORT
+    # VIEW 2: MONTHLY STOCK RECONCILIATION
     # -------------------------------------------------------------
     elif "Monthly Stock Reconciliation" in report_type:
         st.subheader("📅 Monthly Stock Reconciliation Report")
-        st.write("Opening Balance, Inward, Outward & Closing Balance Month-wise Breakdown:")
 
-        # Add Effective Weight Column
         df_raw['Effective_WT'] = df_raw['Coated Pipe Weight(TO)'].where(df_raw['Coated Pipe Weight(TO)'] > 0, df_raw['Bare Pipe Weight(TO)'])
-
         df_valid = df_raw.dropna(subset=['Pstng Date']).copy()
         df_valid['YearMonth'] = df_valid['Pstng Date'].dt.to_period('M')
 
         months = sorted(df_valid['YearMonth'].unique())
-
         recon_rows = []
         open_nos, open_mtr, open_mt = 0.0, 0.0, 0.0
 
         for m in months:
             m_data = df_valid[df_valid['YearMonth'] == m]
-            
             in_m = m_data[m_data['Movement Direction'] == 'Inward']
             out_m = m_data[m_data['Movement Direction'] == 'Outward']
 
@@ -194,12 +184,10 @@ try:
                 'Closing MT': close_mt
             })
 
-            # Next month opening is current closing
             open_nos, open_mtr, open_mt = close_nos, close_mtr, close_mt
 
         df_recon = pd.DataFrame(recon_rows)
 
-        # Format display numbers
         formatted_recon = df_recon.copy()
         for c in formatted_recon.columns:
             if c != 'Month':
@@ -293,31 +281,42 @@ try:
         st.dataframe(prod_summary, use_container_width=True, hide_index=True)
 
     # -------------------------------------------------------------
-    # VIEW 5 & 6: INWARD / OUTWARD REGISTERS
+    # VIEW 5 & 6: INWARD / OUTWARD REGISTERS (GROUPED BY SO & ITEM SUM)
     # -------------------------------------------------------------
     elif "Inward Register" in report_type or "Outward Register" in report_type:
         direction = "Inward" if "Inward" in report_type else "Outward"
-        st.subheader(f"{'📥 Inward' if direction=='Inward' else '📤 Outward'} Register — As of {selected_date.strftime('%d-%b-%Y')}")
+        st.subheader(f"{'📥 Inward' if direction=='Inward' else '📤 Outward'} Register (Sales Order & SO Item Wise Grouped Sum) — As of {selected_date.strftime('%d-%b-%Y')}")
+        
         reg_df = df_today[df_today['Movement Direction'] == direction].copy()
-        cols_map = {
-            'Plnt': 'Plnt',
-            'Customer Name': 'Customer Name',
+        
+        reg_df['Recipient'] = reg_df['Recipient'].fillna("")
+        reg_df['Customer Name'] = reg_df['Customer Name'].fillna("")
+        reg_df['Outer Diameter (inches)'] = pd.to_numeric(reg_df['Outer Diameter (inches)'], errors='coerce').fillna(0)
+        reg_df['Thickness (mm)'] = pd.to_numeric(reg_df['Thickness (mm)'], errors='coerce').fillna(0)
+
+        # Grouping by SO and Item
+        grouped_reg = reg_df.groupby(['Plnt', 'Customer Name', 'Recipient', 'TO Sales Ord.', 'TO SO item', 'Outer Diameter (inches)', 'Thickness (mm)'], as_index=False).agg(
+            Nos=('No of PCS', lambda x: abs(x.sum())),
+            Length_Mtr=('Total Length (Mtr )', lambda x: abs(x.sum())),
+            Coat_Weight=('Coated Pipe Weight(TO)', lambda x: abs(x.sum())),
+            Bare_Weight=('Bare Pipe Weight(TO)', lambda x: abs(x.sum()))
+        )
+
+        grouped_reg.rename(columns={
             'Recipient': 'Destination',
             'TO Sales Ord.': 'Sales Doc.',
             'TO SO item': 'SO Item',
             'Outer Diameter (inches)': 'OD (inch)',
             'Thickness (mm)': 'Thickness (mm)',
-            'No of PCS': 'Nos',
-            'Total Length (Mtr )': 'Length (Mtr)',
-            'Coated Pipe Weight(TO)': 'Coat Weight (Mt)',
-            'Bare Pipe Weight(TO)': 'Bare Weight (Mt)'
-        }
-        display_reg = pd.DataFrame()
-        for orig, target in cols_map.items():
-            display_reg[target] = reg_df[orig] if orig in reg_df.columns else ""
-        display_reg['NET Weight (Mt)'] = display_reg['Coat Weight (Mt)'].where(display_reg['Coat Weight (Mt)'] > 0, display_reg['Bare Weight (Mt)'])
-        display_reg['Trip'] = display_reg['Nos']
-        
+            'Length_Mtr': 'Length (Mtr)',
+            'Coat_Weight': 'Coat Weight (Mt)',
+            'Bare_Weight': 'Bare Weight (Mt)'
+        }, inplace=True)
+
+        grouped_reg['NET Weight (Mt)'] = grouped_reg['Coat Weight (Mt)'].where(grouped_reg['Coat Weight (Mt)'] > 0, grouped_reg['Bare Weight (Mt)'])
+        grouped_reg['Trip'] = grouped_reg['Nos']
+
+        # Bottom Total Row
         total_row = {
             'Plnt': 'TOTAL',
             'Customer Name': '',
@@ -326,14 +325,14 @@ try:
             'SO Item': '',
             'OD (inch)': '',
             'Thickness (mm)': '',
-            'Nos': display_reg['Nos'].sum(),
-            'Length (Mtr)': display_reg['Length (Mtr)'].sum(),
-            'Coat Weight (Mt)': display_reg['Coat Weight (Mt)'].sum(),
-            'Bare Weight (Mt)': display_reg['Bare Weight (Mt)'].sum(),
-            'NET Weight (Mt)': display_reg['NET Weight (Mt)'].sum(),
-            'Trip': display_reg['Trip'].sum()
+            'Nos': grouped_reg['Nos'].sum(),
+            'Length (Mtr)': grouped_reg['Length (Mtr)'].sum(),
+            'Coat Weight (Mt)': grouped_reg['Coat Weight (Mt)'].sum(),
+            'Bare Weight (Mt)': grouped_reg['Bare Weight (Mt)'].sum(),
+            'NET Weight (Mt)': grouped_reg['NET Weight (Mt)'].sum(),
+            'Trip': grouped_reg['Trip'].sum()
         }
-        display_reg = pd.concat([display_reg, pd.DataFrame([total_row])], ignore_index=True)
+        display_reg = pd.concat([grouped_reg, pd.DataFrame([total_row])], ignore_index=True)
         st.dataframe(display_reg, use_container_width=True, hide_index=True)
 
     # -------------------------------------------------------------
