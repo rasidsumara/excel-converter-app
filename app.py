@@ -4,20 +4,20 @@ import datetime
 
 # Page Configuration
 st.set_page_config(
-    page_title="Jindal Saw - Dispatch & Logistics Tracking System",
+    page_title="Jindal Saw - Dynamic Dispatch & Inventory System",
     page_icon="📊",
     layout="wide"
 )
 
 st.title("📊 Management Dispatch & Logistics Control System")
-st.caption("Jindal Saw Limited - Live Dynamic Inward, Outward & Inventory Balance System")
+st.caption("Jindal Saw Limited - Live Inward, Outward & Monthly Inventory Reconciliation")
 
 # Load Raw Base Data
 @st.cache_data
 def load_raw_data():
     file_path = "Inward_Outward_FIXED_and_FAST.xlsx"
     df_raw = pd.read_excel(file_path, sheet_name="Inward-Outward Data")
-    df_raw['Pstng Date'] = pd.to_datetime(df_raw['Pstng Date'], errors='coerce').dt.date
+    df_raw['Pstng Date'] = pd.to_datetime(df_raw['Pstng Date'], errors='coerce')
     return df_raw
 
 try:
@@ -25,8 +25,8 @@ try:
     
     # Date Setup
     valid_dates = df_raw['Pstng Date'].dropna()
-    min_date = valid_dates.min() if not valid_dates.empty else datetime.date(2025, 1, 1)
-    max_date = valid_dates.max() if not valid_dates.empty else datetime.date.today()
+    min_date = valid_dates.min().date() if not valid_dates.empty else datetime.date(2025, 1, 1)
+    max_date = valid_dates.max().date() if not valid_dates.empty else datetime.date.today()
 
     # Sidebar Controls
     st.sidebar.header("⚙️ Report Control Panel")
@@ -35,19 +35,19 @@ try:
         value=max_date,
         min_value=min_date,
         max_value=max_date,
-        help="Selected date tak ka exact cumulative status aur daily movement show karega."
+        help="Selected date tak ka exact cumulative status aur movement calculate hoga."
     )
     
     report_type = st.sidebar.radio(
         "Select Excel Format View:",
         [
-            "1. Daily Dispatch Report (Full)",
-            "2. Print Preview (Active & Positive Balance Only)",
+            "1. Daily Dispatch Report (Print Preview - Positive Balance Only)",
+            "2. Monthly Stock Reconciliation (Opening / In / Out / Closing)",
             "3. Plant-wise Summary",
             "4. Product-wise Summary",
             "5. Inward Register (Daily Movements)",
             "6. Outward Register (Daily Shipments)",
-            "7. Balance Pipe Report"
+            "7. Carbon Steel Pipe Balance"
         ]
     )
 
@@ -57,16 +57,25 @@ try:
         if nc in df_raw.columns:
             df_raw[nc] = pd.to_numeric(df_raw[nc], errors='coerce').fillna(0)
 
-    # Filter up to cut-off date
-    df_upto = df_raw[df_raw['Pstng Date'] <= selected_date].copy()
-    df_today = df_raw[df_raw['Pstng Date'] == selected_date].copy()
+    # Convert date column to python date object
+    df_raw['Pstng_Date_Only'] = df_raw['Pstng Date'].dt.date
+    df_upto = df_raw[df_raw['Pstng_Date_Only'] <= selected_date].copy()
+    df_today = df_raw[df_raw['Pstng_Date_Only'] == selected_date].copy()
 
     group_cols = ['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Valuation Class', 'OD', 'Thickness (mm)']
     for c in group_cols:
         df_upto[c] = df_upto[c].fillna("").astype(str)
         df_today[c] = df_today[c].fillna("").astype(str)
 
-    # Helper: Build 4-row DDR Pivot
+    # Fixed metric sequence matching exact screenshot
+    metric_order = [
+        'Sum of No of PCS',
+        'Sum of Total Length (Mtr )',
+        'Sum of Bare Pipe Weight(TO)',
+        'Sum of Coated Pipe Weight(TO)'
+    ]
+
+    # Helper: Build DDR Pivot with exact 4-row order
     def build_ddr_pivot(base_df):
         metrics = [
             ('No of PCS', 'Sum of No of PCS'),
@@ -86,39 +95,43 @@ try:
             return pd.DataFrame()
         return pd.concat(list_dfs, ignore_index=True)
 
-    # Build Master DDR Sheet
-    in_cum = build_ddr_pivot(df_upto[df_upto['Movement Direction'] == 'Inward']).rename(columns={'Val': 'Total Inward Till Date'})
-    out_cum = build_ddr_pivot(df_upto[df_upto['Movement Direction'] == 'Outward']).rename(columns={'Val': 'Total Outward Till Date'})
-    in_today = build_ddr_pivot(df_today[df_today['Movement Direction'] == 'Inward']).rename(columns={'Val': 'Today IN'})
-    out_today = build_ddr_pivot(df_today[df_today['Movement Direction'] == 'Outward']).rename(columns={'Val': 'Today OUT'})
-
-    m_keys = group_cols + ['Values']
-    m_ddr = in_cum.merge(out_cum, on=m_keys, how='outer')
-    m_ddr = m_ddr.merge(in_today, on=m_keys, how='left')
-    m_ddr = m_ddr.merge(out_today, on=m_keys, how='left')
-    m_ddr.fillna(0, inplace=True)
-
-    # Balance calculation: Outward is negative in source, so Balance = Inward + Outward
-    m_ddr['Balance'] = m_ddr['Total Inward Till Date'] + m_ddr['Total Outward Till Date']
-
     # -------------------------------------------------------------
-    # VIEW 1 & 2: DAILY DISPATCH REPORT & PRINT PREVIEW
+    # VIEW 1: PRINT PREVIEW (POSITIVE BALANCE ONLY, NO MINUS BALANCE)
     # -------------------------------------------------------------
-    if "Daily Dispatch Report" in report_type or "Print Preview" in report_type:
-        st.subheader(f"📋 {report_type} — As of {selected_date.strftime('%d-%b-%Y')}")
-        
-        if "Print Preview" in report_type:
-            pcs_m = m_ddr[m_ddr['Values'] == 'Sum of No of PCS']
-            active_keys = pcs_m[(pcs_m['Balance'] > 0) | (pcs_m['Today IN'] != 0) | (pcs_m['Today OUT'] != 0)][group_cols]
-            res_df = m_ddr.merge(active_keys, on=group_cols) if not active_keys.empty else pd.DataFrame(columns=m_ddr.columns)
+    if "Print Preview" in report_type:
+        st.subheader(f"📋 Daily Dispatch Print Preview — As of {selected_date.strftime('%d-%b-%Y')}")
+        st.info("Note: Negative (-) and zero balance items are strictly filtered out.")
+
+        in_cum = build_ddr_pivot(df_upto[df_upto['Movement Direction'] == 'Inward']).rename(columns={'Val': 'Total Inward Till Date'})
+        out_cum = build_ddr_pivot(df_upto[df_upto['Movement Direction'] == 'Outward']).rename(columns={'Val': 'Total Outward Till Date'})
+        in_today = build_ddr_pivot(df_today[df_today['Movement Direction'] == 'Inward']).rename(columns={'Val': 'Today IN'})
+        out_today = build_ddr_pivot(df_today[df_today['Movement Direction'] == 'Outward']).rename(columns={'Val': 'Today OUT'})
+
+        m_keys = group_cols + ['Values']
+        m_ddr = in_cum.merge(out_cum, on=m_keys, how='outer')
+        m_ddr = m_ddr.merge(in_today, on=m_keys, how='left')
+        m_ddr = m_ddr.merge(out_today, on=m_keys, how='left')
+        m_ddr.fillna(0, inplace=True)
+
+        # Balance calculation (Outward values are negative in source data)
+        m_ddr['Balance'] = m_ddr['Total Inward Till Date'] + m_ddr['Total Outward Till Date']
+
+        # Filter strictly for positive balance only (Balance > 0 for No of PCS)
+        pcs_m = m_ddr[m_ddr['Values'] == 'Sum of No of PCS']
+        positive_keys = pcs_m[pcs_m['Balance'] > 0][group_cols]
+
+        if not positive_keys.empty:
+            res_df = m_ddr.merge(positive_keys, on=group_cols)
         else:
-            res_df = m_ddr.copy()
+            res_df = pd.DataFrame(columns=m_ddr.columns)
 
-        res_df.sort_values(by=group_cols + ['Values'], inplace=True)
+        # Sort to preserve exact 4-row order per item
+        res_df['Values_Cat'] = pd.Categorical(res_df['Values'], categories=metric_order, ordered=True)
+        res_df.sort_values(by=group_cols + ['Values_Cat'], inplace=True)
 
         disp_cols = group_cols + ['Values', 'Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']
         
-        # Formatting zero values to "-" for clean Excel appearance
+        # Format zeros as "-"
         formatted_df = res_df[disp_cols].copy()
         num_fields = ['Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']
         for col in num_fields:
@@ -127,14 +140,81 @@ try:
         st.dataframe(formatted_df, use_container_width=True, hide_index=True)
 
         csv_bytes = res_df[disp_cols].to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download Report (CSV)", data=csv_bytes, file_name=f"DDR_Report_{selected_date}.csv", mime="text/csv")
+        st.download_button("📥 Download Print Preview (CSV)", data=csv_bytes, file_name=f"DDR_Positive_Balance_{selected_date}.csv", mime="text/csv")
+
+    # -------------------------------------------------------------
+    # VIEW 2: MONTHLY STOCK RECONCILIATION REPORT
+    # -------------------------------------------------------------
+    elif "Monthly Stock Reconciliation" in report_type:
+        st.subheader("📅 Monthly Stock Reconciliation Report")
+        st.write("Opening Balance, Inward, Outward & Closing Balance Month-wise Breakdown:")
+
+        # Add Effective Weight Column
+        df_raw['Effective_WT'] = df_raw['Coated Pipe Weight(TO)'].where(df_raw['Coated Pipe Weight(TO)'] > 0, df_raw['Bare Pipe Weight(TO)'])
+
+        df_valid = df_raw.dropna(subset=['Pstng Date']).copy()
+        df_valid['YearMonth'] = df_valid['Pstng Date'].dt.to_period('M')
+
+        months = sorted(df_valid['YearMonth'].unique())
+
+        recon_rows = []
+        open_nos, open_mtr, open_mt = 0.0, 0.0, 0.0
+
+        for m in months:
+            m_data = df_valid[df_valid['YearMonth'] == m]
+            
+            in_m = m_data[m_data['Movement Direction'] == 'Inward']
+            out_m = m_data[m_data['Movement Direction'] == 'Outward']
+
+            in_nos = in_m['No of PCS'].sum()
+            in_mtr = in_m['Total Length (Mtr )'].sum()
+            in_mt = in_m['Effective_WT'].sum()
+
+            out_nos = abs(out_m['No of PCS'].sum())
+            out_mtr = abs(out_m['Total Length (Mtr )'].sum())
+            out_mt = abs(out_m['Effective_WT'].sum())
+
+            close_nos = open_nos + in_nos - out_nos
+            close_mtr = open_mtr + in_mtr - out_mtr
+            close_mt = open_mt + in_mt - out_mt
+
+            recon_rows.append({
+                'Month': str(m),
+                'Opening Nos': open_nos,
+                'Opening Mtr': open_mtr,
+                'Opening MT': open_mt,
+                'IN Nos': in_nos,
+                'IN Mtr': in_mtr,
+                'IN MT': in_mt,
+                'OUT Nos': out_nos,
+                'OUT Mtr': out_mtr,
+                'OUT MT': out_mt,
+                'Closing Nos': close_nos,
+                'Closing Mtr': close_mtr,
+                'Closing MT': close_mt
+            })
+
+            # Next month opening is current closing
+            open_nos, open_mtr, open_mt = close_nos, close_mtr, close_mt
+
+        df_recon = pd.DataFrame(recon_rows)
+
+        # Format display numbers
+        formatted_recon = df_recon.copy()
+        for c in formatted_recon.columns:
+            if c != 'Month':
+                formatted_recon[c] = formatted_recon[c].apply(lambda x: f"{x:,.2f}" if isinstance(x, (int, float)) else x)
+
+        st.dataframe(formatted_recon, use_container_width=True, hide_index=True)
+
+        csv_bytes = df_recon.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download Monthly Reconciliation (CSV)", data=csv_bytes, file_name="Monthly_Stock_Reconciliation.csv", mime="text/csv")
 
     # -------------------------------------------------------------
     # VIEW 3: PLANT-WISE SUMMARY
     # -------------------------------------------------------------
     elif "Plant-wise Summary" in report_type:
         st.subheader(f"🏭 Plant-wise Summary — As of {selected_date.strftime('%d-%b-%Y')}")
-        
         plants = ['SGH1', 'SGH2', 'SGJ2', 'SGSS']
         rows = []
         for p in plants:
@@ -152,10 +232,7 @@ try:
                 'Bare Weight (Mt)': bare,
                 'Net Weight (Mt)': net
             })
-            
         p_summary = pd.DataFrame(rows)
-        
-        # Grand Total Row
         gt_row = {
             'Plant Name': 'GRAND TOTAL',
             'No. of Pcs': p_summary['No. of Pcs'].sum(),
@@ -172,9 +249,7 @@ try:
     # -------------------------------------------------------------
     elif "Product-wise Summary" in report_type:
         st.subheader(f"📦 Product-wise Summary — As of {selected_date.strftime('%d-%b-%Y')}")
-        
         buckets = ['Carbon Steel', 'SEAM PIPE', 'SS WELDED', 'ss cutting plate', 'SS RESALE', 'Coating Jobwork', 'J_BARE_PIPE_MTR']
-        
         rows = []
         for b in buckets:
             if b == 'J_BARE_PIPE_MTR':
@@ -189,9 +264,9 @@ try:
                 sub = df_upto[df_upto['Material'].str.contains('PLATE', case=False, na=False)]
             elif b == 'SS RESALE':
                 sub = df_upto[df_upto['Material'].str.contains('RESALE', case=False, na=False)]
-            else: # Carbon Steel as default / catch-all
+            else:
                 sub = df_upto[~df_upto['Valuation Class'].str.contains('Jobwork', case=False, na=False)]
-                
+            
             pcs = sub['No of PCS'].sum()
             length = sub['Total Length (Mtr )'].sum()
             coated = sub['Coated Pipe Weight(TO)'].sum()
@@ -205,10 +280,7 @@ try:
                 'Bare Weight (Mt)': bare,
                 'Net Weight (Mt)': net
             })
-            
         prod_summary = pd.DataFrame(rows)
-        
-        # Grand Total
         gt_row = {
             'Product Name': 'GRAND TOTAL',
             'No. of Pcs': prod_summary['No. of Pcs'].sum(),
@@ -221,14 +293,12 @@ try:
         st.dataframe(prod_summary, use_container_width=True, hide_index=True)
 
     # -------------------------------------------------------------
-    # VIEW 5 & 6: INWARD & OUTWARD REGISTERS
+    # VIEW 5 & 6: INWARD / OUTWARD REGISTERS
     # -------------------------------------------------------------
     elif "Inward Register" in report_type or "Outward Register" in report_type:
         direction = "Inward" if "Inward" in report_type else "Outward"
         st.subheader(f"{'📥 Inward' if direction=='Inward' else '📤 Outward'} Register — As of {selected_date.strftime('%d-%b-%Y')}")
-        
         reg_df = df_today[df_today['Movement Direction'] == direction].copy()
-        
         cols_map = {
             'Plnt': 'Plnt',
             'Customer Name': 'Customer Name',
@@ -242,15 +312,12 @@ try:
             'Coated Pipe Weight(TO)': 'Coat Weight (Mt)',
             'Bare Pipe Weight(TO)': 'Bare Weight (Mt)'
         }
-        
         display_reg = pd.DataFrame()
         for orig, target in cols_map.items():
             display_reg[target] = reg_df[orig] if orig in reg_df.columns else ""
-            
         display_reg['NET Weight (Mt)'] = display_reg['Coat Weight (Mt)'].where(display_reg['Coat Weight (Mt)'] > 0, display_reg['Bare Weight (Mt)'])
-        display_reg['Trip'] = display_reg['Nos'] # Approximated trip count
+        display_reg['Trip'] = display_reg['Nos']
         
-        # Bottom Total Row
         total_row = {
             'Plnt': 'TOTAL',
             'Customer Name': '',
@@ -270,9 +337,9 @@ try:
         st.dataframe(display_reg, use_container_width=True, hide_index=True)
 
     # -------------------------------------------------------------
-    # VIEW 7: BALANCE PIPE REPORT
+    # VIEW 7: PIPE BALANCE REPORT
     # -------------------------------------------------------------
-    elif "Balance Pipe Report" in report_type:
+    elif "Carbon Steel Pipe Balance" in report_type:
         st.subheader(f"📦 Carbon Steel Pipe Balance — As of {selected_date.strftime('%d-%b-%Y')}")
         bal_df = df_upto.groupby(['Customer Name', 'TO Sales Ord.', 'TO SO item', 'OD', 'Thickness (mm)', 'Material Number'], as_index=False).agg(
             NOS=('No of PCS', 'sum'),
@@ -287,7 +354,6 @@ try:
             'Thickness (mm)': 'THK',
             'Material Number': 'MATERIAL NUMBER'
         }, inplace=True)
-        
         st.dataframe(bal_df, use_container_width=True, hide_index=True)
 
 except Exception as e:
