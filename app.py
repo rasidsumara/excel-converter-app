@@ -1,50 +1,54 @@
-import io
-from processor import process_and_transform_excel
-import pandas as pd
 import streamlit as st
+import pandas as pd
 
-st.set_page_config(
-    page_title="Excel Grouping & Aggregator App", page_icon="📈", layout="wide"
-)
+# Page Layout
+st.set_page_config(page_title="Inward & Outward Dispatch System", layout="wide")
 
-st.title("📊 Multi-Excel Column Aggregator & Grouping Tool")
-st.write(
-    "10-20 Excel files select karke upload karein. Column Z ke duplicates merge hoke single row banenge aur positive/negative values Sum hongi."
-)
+st.title("📊 Inward & Outward Dispatch Tracking System")
+st.write("Jindal Saw Logistics & Dispatch Management Report")
 
-uploaded_files = st.file_uploader(
-    "Excel Files Choose Karein (Multiple Upload)",
-    type=["xlsx", "xls"],
-    accept_multiple_files=True,
-)
+# Load Excel Data
+@st.cache_data
+def load_data():
+    file_path = "Inward_Outward_FIXED_and_FAST.xlsx"
+    daily_dispatch = pd.read_excel(file_path, sheet_name="Daily Dispatch Report (FIXED)", skiprows=4)
+    plant_summary = pd.read_excel(file_path, sheet_name="Plant-wise Summary", skiprows=2)
+    product_summary = pd.read_excel(file_path, sheet_name="Product-wise Summary", skiprows=2)
+    inward_reg = pd.read_excel(file_path, sheet_name="Inward Register", skiprows=2)
+    outward_reg = pd.read_excel(file_path, sheet_name="Outward Register", skiprows=2)
+    return daily_dispatch, plant_summary, product_summary, inward_reg, outward_reg
 
-if uploaded_files:
-    st.info(f"Total {len(uploaded_files)} files select ki hain.")
+try:
+    daily_dispatch, plant_summary, product_summary, inward_reg, outward_reg = load_data()
 
-    if st.button("⚡ Process & Group Excel Data"):
-        with st.spinner("Processing Excel files..."):
-            final_data = process_and_transform_excel(uploaded_files)
+    # Sidebar Navigation
+    st.sidebar.header("📌 Navigation")
+    report_type = st.sidebar.radio(
+        "Report Select Karein:",
+        ["Daily Dispatch Report", "Plant-wise Summary", "Product-wise Summary", "Inward Register", "Outward Register"]
+    )
 
-        if not final_data.empty:
-            st.success("✅ Excel Data Successfully Grouped & Merged!")
+    if report_type == "Daily Dispatch Report":
+        st.subheader("📋 Daily Dispatch Report (FIXED)")
+        st.write(f"Total Rows: {len(daily_dispatch)}")
+        st.dataframe(daily_dispatch, use_container_width=True)
 
-            # Display Preview
-            st.write("### Converted Data Preview:")
-            st.dataframe(final_data)
+    elif report_type == "Plant-wise Summary":
+        st.subheader("🏭 Plant-wise Summary")
+        st.dataframe(plant_summary, use_container_width=True)
 
-            # Convert to Excel in-memory
-            output_buffer = io.BytesIO()
-            with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
-                final_data.to_excel(
-                    writer, index=False, sheet_name="Merged_Summary"
-                )
+    elif report_type == "Product-wise Summary":
+        st.subheader("📦 Product-wise Summary")
+        st.dataframe(product_summary, use_container_width=True)
 
-            # Download Button
-            st.download_button(
-                label="📥 New Converted Excel File Download Karein",
-                data=output_buffer.getvalue(),
-                file_name="Converted_Aggregated_Report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-        else:
-            st.error("Error: Selected files me valid data nahi mila.")
+    elif report_type == "Inward Register":
+        st.subheader("📥 Inward Register")
+        st.dataframe(inward_reg, use_container_width=True)
+
+    elif report_type == "Outward Register":
+        st.subheader("📤 Outward Register")
+        st.dataframe(outward_reg, use_container_width=True)
+
+except Exception as e:
+    st.error(f"Error: {e}")
+    st.info("Kripya check karein ki Excel file ka naam exact `Inward_Outward_FIXED_and_FAST.xlsx` hona chahiye.")
