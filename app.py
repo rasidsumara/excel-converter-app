@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import datetime
 import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -137,6 +139,62 @@ try:
             return pd.DataFrame()
         return pd.concat(list_dfs, ignore_index=True)
 
+    # Helper: Generate OpenPyXL Formatted Excel matching ddr formate structure
+    def generate_excel_report(df_to_excel, title_text):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Dispatch Report"
+
+        title_font = Font(name='Calibri', size=14, bold=True, color='FFFFFF')
+        title_fill = PatternFill(start_color='1F4E78', end_color='1F4E78', fill_type='solid')
+        
+        header_font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+        header_fill = PatternFill(start_color='0B2545', end_color='0B2545', fill_type='solid')
+        
+        data_font = Font(name='Calibri', size=10)
+        bold_data_font = Font(name='Calibri', size=10, bold=True)
+        
+        thin_border = Border(
+            left=Side(style='thin', color='D9D9D9'),
+            right=Side(style='thin', color='D9D9D9'),
+            top=Side(style='thin', color='D9D9D9'),
+            bottom=Side(style='thin', color='D9D9D9')
+        )
+
+        ws.merge_cells('A1:M1')
+        ws['A1'] = f"DAILY DISPATCH REPORT — {title_text.upper()}"
+        ws['A1'].font = title_font
+        ws['A1'].fill = title_fill
+        ws['A1'].alignment = Alignment(horizontal='center', vertical='center')
+
+        ws['A2'] = f"Report Date: {selected_date.strftime('%d-%b-%Y')}"
+        ws['A2'].font = Font(name='Calibri', size=11, italic=True)
+
+        headers = df_to_excel.columns.tolist()
+        for col_idx, header in enumerate(headers, 1):
+            cell = ws.cell(row=4, column=col_idx, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+
+        for row_idx, row_data in enumerate(df_to_excel.values.tolist(), 5):
+            is_total_row = (row_idx - 5 >= len(df_to_excel) - 4)
+            for col_idx, val in enumerate(row_data, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=val)
+                cell.font = bold_data_font if is_total_row else data_font
+                cell.border = thin_border
+                cell.alignment = Alignment(horizontal='left' if col_idx <= 8 else 'right', vertical='center')
+
+        for col in ws.columns:
+            max_length = max(len(str(cell.value or '')) for cell in col)
+            col_letter = col[0].column_letter
+            ws.column_dimensions[col_letter].width = max(max_length + 3, 12)
+
+        excel_buffer = io.BytesIO()
+        wb.save(excel_buffer)
+        excel_buffer.seek(0)
+        return excel_buffer
+
     # Helper: PDF Generation Engine
     def generate_pdf_report(df_to_pdf, title_text):
         buffer = io.BytesIO()
@@ -150,7 +208,6 @@ try:
         elements.append(Paragraph(f"Report Date: {selected_date.strftime('%d-%b-%Y')}", styles['Normal']))
         elements.append(Spacer(1, 10))
         
-        # Format table data for PDF
         table_data = [df_to_pdf.columns.tolist()]
         for row in df_to_pdf.values.tolist():
             clean_row = [str(cell) if cell is not None else "" for cell in row]
@@ -241,8 +298,8 @@ try:
 
         col1, col2 = st.columns(2)
         with col1:
-            csv_bytes = res_df_with_total.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Print Preview (CSV)", data=csv_bytes, file_name=f"DDR_Positive_Balance_{selected_date}.csv", mime="text/csv")
+            excel_buf = generate_excel_report(res_df_with_total, "Daily Dispatch Print Preview")
+            st.download_button("📥 Download Print Preview (Excel .xlsx)", data=excel_buf, file_name=f"DDR_Positive_Balance_{selected_date}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         with col2:
             pdf_buf = generate_pdf_report(formatted_df, "Daily Dispatch Print Preview")
             st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"DDR_Report_{selected_date}.pdf", mime="application/pdf")
@@ -307,8 +364,8 @@ try:
 
         col1, col2 = st.columns(2)
         with col1:
-            csv_bytes = df_recon.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Monthly Reconciliation (CSV)", data=csv_bytes, file_name="Monthly_Stock_Reconciliation.csv", mime="text/csv")
+            excel_buf = generate_excel_report(df_recon, "Monthly Stock Reconciliation")
+            st.download_button("📥 Download Monthly Reconciliation (Excel .xlsx)", data=excel_buf, file_name="Monthly_Stock_Reconciliation.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         with col2:
             pdf_buf = generate_pdf_report(formatted_recon, "Monthly Stock Reconciliation Report")
             st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name="Monthly_Stock_Reconciliation.pdf", mime="application/pdf")
@@ -349,8 +406,8 @@ try:
 
         col1, col2 = st.columns(2)
         with col1:
-            csv_bytes = p_summary.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Summary (CSV)", data=csv_bytes, file_name=f"Plant_Summary_{selected_date}.csv", mime="text/csv")
+            excel_buf = generate_excel_report(p_summary, "Plant-wise Summary")
+            st.download_button("📥 Download Summary (Excel .xlsx)", data=excel_buf, file_name=f"Plant_Summary_{selected_date}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         with col2:
             pdf_buf = generate_pdf_report(p_summary, "Plant-wise Summary")
             st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"Plant_Summary_{selected_date}.pdf", mime="application/pdf")
@@ -405,8 +462,8 @@ try:
 
         col1, col2 = st.columns(2)
         with col1:
-            csv_bytes = prod_summary.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Summary (CSV)", data=csv_bytes, file_name=f"Product_Summary_{selected_date}.csv", mime="text/csv")
+            excel_buf = generate_excel_report(prod_summary, "Product-wise Summary")
+            st.download_button("📥 Download Summary (Excel .xlsx)", data=excel_buf, file_name=f"Product_Summary_{selected_date}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         with col2:
             pdf_buf = generate_pdf_report(prod_summary, "Product-wise Summary")
             st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"Product_Summary_{selected_date}.pdf", mime="application/pdf")
@@ -468,8 +525,8 @@ try:
 
         col1, col2 = st.columns(2)
         with col1:
-            csv_bytes = display_reg.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Register (CSV)", data=csv_bytes, file_name=f"{direction}_Register_{selected_date}.csv", mime="text/csv")
+            excel_buf = generate_excel_report(display_reg, f"{direction} Register")
+            st.download_button("📥 Download Register (Excel .xlsx)", data=excel_buf, file_name=f"{direction}_Register_{selected_date}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         with col2:
             pdf_buf = generate_pdf_report(display_reg, f"{direction} Register")
             st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"{direction}_Register_{selected_date}.pdf", mime="application/pdf")
@@ -501,8 +558,8 @@ try:
 
         col1, col2 = st.columns(2)
         with col1:
-            csv_bytes = bal_df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Pipe Balance (CSV)", data=csv_bytes, file_name=f"Pipe_Balance_{selected_date}.csv", mime="text/csv")
+            excel_buf = generate_excel_report(bal_df, "Carbon Steel Pipe Balance")
+            st.download_button("📥 Download Pipe Balance (Excel .xlsx)", data=excel_buf, file_name=f"Pipe_Balance_{selected_date}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         with col2:
             pdf_buf = generate_pdf_report(bal_df, "Carbon Steel Pipe Balance")
             st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"Pipe_Balance_{selected_date}.pdf", mime="application/pdf")
