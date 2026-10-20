@@ -10,10 +10,48 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 # Page Configuration
 st.set_page_config(
     page_title="Jindal Saw - Dynamic Dispatch & Inventory System",
-    page_icon="📊",
+    page_icon="🔒",
     layout="wide"
 )
 
+# -------------------------------------------------------------
+# PASSWORD PROTECTION LOGIC
+# -------------------------------------------------------------
+def check_password():
+    """Returns True if the user enters the correct password."""
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    if st.session_state["password_correct"]:
+        return True
+
+    # Password Login UI
+    st.title("🔒 Management Report - Secure Access")
+    st.subheader("Kripya App me access karne ke liye Password daalein:")
+    
+    user_password = st.text_input("Password:", type="password", key="password_input")
+    
+    if st.button("Login"):
+        if user_password == "Rashid@5972":
+            st.session_state["password_correct"] = True
+            st.rerun()
+        else:
+            st.error("❌ Galat Password! Kripya sahi password daalein.")
+            
+    return False
+
+# Stop execution if password is not correct
+if not check_password():
+    st.stop()
+
+# Logout Button in Sidebar
+if st.sidebar.button("🔒 Logout"):
+    st.session_state["password_correct"] = False
+    st.rerun()
+
+# -------------------------------------------------------------
+# MAIN APPLICATION CODE (RUNS AFTER SUCCESSFUL LOGIN)
+# -------------------------------------------------------------
 st.title("📊 Management Dispatch & Logistics Control System")
 st.caption("Jindal Saw Limited - Live Inward, Outward & Inventory Management System")
 
