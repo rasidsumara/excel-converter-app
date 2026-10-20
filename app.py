@@ -49,22 +49,16 @@ try:
         ]
     )
 
-    # Data cleaning for grouping
-    df_raw['Thickness (mm)'] = pd.to_numeric(df_raw['Thickness (mm)'], errors='coerce').fillna(0)
-    df_raw['OD'] = pd.to_numeric(df_raw['OD'], errors='coerce').fillna(0)
-    df_raw['TO Sales Ord.'] = pd.to_numeric(df_raw['TO Sales Ord.'], errors='coerce').fillna(0).astype(int)
-    df_raw['TO SO item'] = pd.to_numeric(df_raw['TO SO item'], errors='coerce').fillna(0).astype(int)
+    # Clean data types for grouping
+    group_cols = ['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Valuation Class', 'OD', 'Thickness (mm)']
+    for col in group_cols:
+        df_raw[col] = df_raw[col].fillna("N/A").astype(str)
 
     # Filter data up to selected date
     df_upto_date = df_raw[df_raw['Pstng Date'] <= selected_date].copy()
     df_today = df_raw[df_raw['Pstng Date'] == selected_date].copy()
 
-    group_cols = ['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Valuation Class', 'OD', 'Thickness (mm)']
-    for col in group_cols:
-        df_upto_date[col] = df_upto_date[col].astype(str)
-        df_today[col] = df_today[col].astype(str)
-
-    # Helper function to generate DDR 4-row format
+    # Helper function to generate DDR 4-row format without index errors
     def create_ddr_format(base_df):
         metrics = [
             ('No of PCS', 'Sum of No of PCS'),
@@ -75,16 +69,17 @@ try:
         frames = []
         for col_name, label in metrics:
             if col_name in base_df.columns:
+                # Ensure numeric calculation
+                base_df[col_name] = pd.to_numeric(base_df[col_name], errors='coerce').fillna(0)
                 temp = base_df.groupby(group_cols, as_index=False)[col_name].sum()
                 temp['Values'] = label
                 temp['Metric_Val'] = temp[col_name]
-                frames.append(temp[['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Valuation Class', 'OD', 'Thickness (mm)', 'Values', 'Metric_Val']])
+                frames.append(temp[group_cols + ['Values', 'Metric_Val']])
         
         if not frames:
             return pd.DataFrame()
             
-        combined = pd.concat(frames, ignore_index=True)
-        return combined
+        return pd.concat(frames, ignore_index=True)
 
     # 1. Daily Dispatch Report View (DDR Print Preview Format)
     if "Daily Dispatch Report" in report_view:
@@ -104,6 +99,8 @@ try:
         outward_cum_df.rename(columns={'Metric_Val': 'Total Outward Till Date'}, inplace=True)
 
         master_keys = group_cols + ['Values']
+        
+        # Merge safely
         merged = inward_cum_df.merge(outward_cum_df, on=master_keys, how='outer')
         merged = merged.merge(inward_today_df, on=master_keys, how='left')
         merged = merged.merge(outward_today_df, on=master_keys, how='left')
@@ -112,20 +109,18 @@ try:
         merged['Balance'] = merged['Total Inward Till Date'] - merged['Total Outward Till Date']
 
         # Filter out rows where Balance <= 0 and Today movements are 0
-        # To handle multi-metric rows properly per group, check group balance
-        balance_summary = merged[merged['Values'] == 'Sum of No of PCS'][['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Balance']]
-        active_groups = balance_summary[balance_summary['Balance'] > 0]
-        
-        # Also include groups with active today movement
-        today_summary = merged[(merged['Today IN'] != 0) | (merged['Today OUT'] != 0)][group_cols].drop_duplicates()
-        
-        valid_keys = pd.concat([active_groups[group_cols[:-1] if 'group_cols' in locals() else group_cols], today_summary]).drop_duplicates()
-        
-        filtered_merged = merged.merge(valid_keys, on=['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Valuation Class', 'OD', 'Thickness (mm)'])
-        filtered_merged.sort_values(by=['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Values'], inplace=True)
+        pcs_rows = merged[merged['Values'] == 'Sum of No of PCS']
+        active_keys = pcs_rows[(pcs_rows['Balance'] > 0) | (pcs_rows['Today IN'] != 0) | (pcs_rows['Today OUT'] != 0)][group_cols]
+
+        if not active_keys.empty:
+            filtered_merged = merged.merge(active_keys, on=group_cols)
+        else:
+            filtered_merged = pd.DataFrame(columns=merged.columns)
+
+        filtered_merged.sort_values(by=group_cols + ['Values'], inplace=True)
 
         st.dataframe(
-            filtered_merged[['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Valuation Class', 'OD', 'Thickness (mm)', 'Values', 'Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']],
+            filtered_merged[group_cols + ['Values', 'Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']],
             use_container_width=True,
             hide_index=True
         )
@@ -136,6 +131,11 @@ try:
     # 2. Plant-wise Summary View
     elif report_view == "Plant-wise Summary":
         st.subheader(f"🏭 Plant-wise Summary — As of {selected_date.strftime('%d-%b-%Y')}")
+        df_upto_date['Coated Pipe Weight(TO)'] = pd.to_numeric(df_upto_date['Coated Pipe Weight(TO)'], errors='coerce').fillna(0)
+        df_upto_date['Bare Pipe Weight(TO)'] = pd.to_numeric(df_upto_date['Bare Pipe Weight(TO)'], errors='coerce').fillna(0)
+        df_upto_date['No of PCS'] = pd.to_numeric(df_upto_date['No of PCS'], errors='coerce').fillna(0)
+        df_upto_date['Total Length (Mtr )'] = pd.to_numeric(df_upto_date['Total Length (Mtr )'], errors='coerce').fillna(0)
+
         plant_df = df_upto_date.groupby('Plnt', as_index=False).agg(
             No_of_Pcs=('No of PCS', 'sum'),
             Length_Mtr=('Total Length (Mtr )', 'sum'),
@@ -156,7 +156,7 @@ try:
             Bare_Weight_Mt=('Bare Pipe Weight(TO)', 'sum')
         )
         prod_df['Net Weight (Mt)'] = prod_df['Coated_Weight_Mt'].where(prod_df['Coated_Weight_Mt'] > 0, prod_df['Bare_Weight_Mt'])
-        st.rename(columns={prod_col: 'Product Name'}, inplace=True)
+        prod_df.rename(columns={prod_col: 'Product Name'}, inplace=True)
         st.dataframe(prod_df, use_container_width=True, hide_index=True)
 
     # 4. Inward Register View
