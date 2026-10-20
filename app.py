@@ -137,11 +137,11 @@ try:
         return buffer
 
     # -------------------------------------------------------------
-    # VIEW 1: PRINT PREVIEW (POSITIVE BALANCE ONLY & GRAND TOTAL)
+    # VIEW 1: PRINT PREVIEW (ONLY NOS > 0 STRICTLY FILTERED & TOTAL)
     # -------------------------------------------------------------
     if "Print Preview" in report_type:
         st.subheader(f"📋 Daily Dispatch Print Preview — As of {selected_date.strftime('%d-%b-%Y')}")
-        st.info("Note: Negative (-) and zero balance items are strictly filtered out.")
+        st.info("Note: Stock with Nos <= 0 (Zero or Negative Balance) is strictly hidden.")
 
         in_cum = build_ddr_pivot(df_upto[df_upto['Movement Direction'] == 'Inward']).rename(columns={'Val': 'Total Inward Till Date'})
         out_cum = build_ddr_pivot(df_upto[df_upto['Movement Direction'] == 'Outward']).rename(columns={'Val': 'Total Outward Till Date'})
@@ -156,11 +156,12 @@ try:
 
         m_ddr['Balance'] = m_ddr['Total Inward Till Date'] + m_ddr['Total Outward Till Date']
 
+        # STRICT FILTER: NOS Balance MUST BE GREATER THAN 0 ONLY
         pcs_m = m_ddr[m_ddr['Values'] == 'Sum of No of PCS']
-        positive_keys = pcs_m[pcs_m['Balance'] > 0][group_cols]
+        strictly_positive_keys = pcs_m[pcs_m['Balance'] > 0][group_cols]
 
-        if not positive_keys.empty:
-            res_df = m_ddr.merge(positive_keys, on=group_cols)
+        if not strictly_positive_keys.empty:
+            res_df = m_ddr.merge(strictly_positive_keys, on=group_cols)
         else:
             res_df = pd.DataFrame(columns=m_ddr.columns)
 
@@ -169,7 +170,7 @@ try:
 
         disp_cols = group_cols + ['Values', 'Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']
         
-        # Calculate Grand Totals for each Value metric
+        # Calculate Grand Totals
         total_rows = []
         for v in metric_order:
             sub_v = res_df[res_df['Values'] == v]
@@ -373,7 +374,7 @@ try:
             st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"Product_Summary_{selected_date}.pdf", mime="application/pdf")
 
     # -------------------------------------------------------------
-    # VIEW 5 & 6: INWARD / OUTWARD REGISTERS
+    # VIEW 5 & 6: INWARD / OUTWARD REGISTERS (STRICTLY NOS > 0)
     # -------------------------------------------------------------
     elif "Inward Register" in report_type or "Outward Register" in report_type:
         direction = "Inward" if "Inward" in report_type else "Outward"
@@ -391,6 +392,9 @@ try:
             Coat_Weight=('Coated Pipe Weight(TO)', lambda x: abs(x.sum())),
             Bare_Weight=('Bare Pipe Weight(TO)', lambda x: abs(x.sum()))
         )
+
+        # STRICT FILTER: NOS > 0 ONLY
+        grouped_reg = grouped_reg[grouped_reg['Nos'] > 0].copy()
 
         grouped_reg.rename(columns={
             'Recipient': 'Destination',
@@ -433,7 +437,7 @@ try:
             st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"{direction}_Register_{selected_date}.pdf", mime="application/pdf")
 
     # -------------------------------------------------------------
-    # VIEW 7: PIPE BALANCE REPORT
+    # VIEW 7: PIPE BALANCE REPORT (STRICTLY NOS > 0)
     # -------------------------------------------------------------
     elif "Carbon Steel Pipe Balance" in report_type:
         st.subheader(f"📦 Carbon Steel Pipe Balance — As of {selected_date.strftime('%d-%b-%Y')}")
@@ -442,6 +446,10 @@ try:
             MTR=('Total Length (Mtr )', 'sum'),
             MT=('Bare Pipe Weight(TO)', 'sum')
         )
+
+        # STRICT FILTER: NOS > 0 ONLY
+        bal_df = bal_df[bal_df['NOS'] > 0].copy()
+
         bal_df.rename(columns={
             'Customer Name': 'CUST NAME',
             'TO Sales Ord.': 'S.O. NUMBER',
@@ -450,6 +458,7 @@ try:
             'Thickness (mm)': 'THK',
             'Material Number': 'MATERIAL NUMBER'
         }, inplace=True)
+
         st.dataframe(bal_df, use_container_width=True, hide_index=True)
 
         col1, col2 = st.columns(2)
