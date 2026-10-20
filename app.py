@@ -1,6 +1,11 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import io
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 # Page Configuration
 st.set_page_config(
@@ -10,7 +15,7 @@ st.set_page_config(
 )
 
 st.title("📊 Management Dispatch & Logistics Control System")
-st.caption("Jindal Saw Limited - Live Inward, Outward & Monthly Inventory Reconciliation")
+st.caption("Jindal Saw Limited - Live Inward, Outward & Inventory Management System")
 
 # Load Raw Base Data
 @st.cache_data
@@ -94,8 +99,45 @@ try:
             return pd.DataFrame()
         return pd.concat(list_dfs, ignore_index=True)
 
+    # Helper: PDF Generation Engine
+    def generate_pdf_report(df_to_pdf, title_text):
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
+        elements = []
+        
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=14, leading=16, textColor=colors.HexColor('#0B2545'))
+        
+        elements.append(Paragraph(f"<b>JINDAL SAW LIMITED</b> - {title_text}", title_style))
+        elements.append(Paragraph(f"Report Date: {selected_date.strftime('%d-%b-%Y')}", styles['Normal']))
+        elements.append(Spacer(1, 10))
+        
+        # Format table data for PDF
+        table_data = [df_to_pdf.columns.tolist()]
+        for row in df_to_pdf.values.tolist():
+            clean_row = [str(cell) if cell is not None else "" for cell in row]
+            table_data.append(clean_row)
+            
+        pdf_table = Table(table_data, repeatRows=1)
+        pdf_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0B2545')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,0), 8),
+            ('BOTTOMPADDING', (0,0), (-1,0), 5),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+            ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
+            ('FONTSIZE', (0,1), (-1,-1), 7),
+        ]))
+        
+        elements.append(pdf_table)
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer
+
     # -------------------------------------------------------------
-    # VIEW 1: PRINT PREVIEW (POSITIVE BALANCE ONLY)
+    # VIEW 1: PRINT PREVIEW (POSITIVE BALANCE ONLY & GRAND TOTAL)
     # -------------------------------------------------------------
     if "Print Preview" in report_type:
         st.subheader(f"📋 Daily Dispatch Print Preview — As of {selected_date.strftime('%d-%b-%Y')}")
@@ -127,15 +169,44 @@ try:
 
         disp_cols = group_cols + ['Values', 'Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']
         
-        formatted_df = res_df[disp_cols].copy()
+        # Calculate Grand Totals for each Value metric
+        total_rows = []
+        for v in metric_order:
+            sub_v = res_df[res_df['Values'] == v]
+            t_row = {
+                'Plnt': 'TOTAL',
+                'Customer Name': 'GRAND TOTAL',
+                'TO Sales Ord.': '',
+                'TO SO item': '',
+                'Valuation Class': '',
+                'OD': '',
+                'Thickness (mm)': '',
+                'Values': v,
+                'Today IN': sub_v['Today IN'].sum(),
+                'Total Inward Till Date': sub_v['Total Inward Till Date'].sum(),
+                'Today OUT': sub_v['Today OUT'].sum(),
+                'Total Outward Till Date': sub_v['Total Outward Till Date'].sum(),
+                'Balance': sub_v['Balance'].sum()
+            }
+            total_rows.append(t_row)
+
+        df_totals = pd.DataFrame(total_rows)
+        res_df_with_total = pd.concat([res_df[disp_cols], df_totals], ignore_index=True)
+
+        formatted_df = res_df_with_total.copy()
         num_fields = ['Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']
         for col in num_fields:
             formatted_df[col] = formatted_df[col].apply(lambda x: "-" if abs(x) < 1e-4 else f"{x:,.2f}")
 
         st.dataframe(formatted_df, use_container_width=True, hide_index=True)
 
-        csv_bytes = res_df[disp_cols].to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download Print Preview (CSV)", data=csv_bytes, file_name=f"DDR_Positive_Balance_{selected_date}.csv", mime="text/csv")
+        col1, col2 = st.columns(2)
+        with col1:
+            csv_bytes = res_df_with_total.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Print Preview (CSV)", data=csv_bytes, file_name=f"DDR_Positive_Balance_{selected_date}.csv", mime="text/csv")
+        with col2:
+            pdf_buf = generate_pdf_report(formatted_df, "Daily Dispatch Print Preview")
+            st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"DDR_Report_{selected_date}.pdf", mime="application/pdf")
 
     # -------------------------------------------------------------
     # VIEW 2: MONTHLY STOCK RECONCILIATION
@@ -195,8 +266,13 @@ try:
 
         st.dataframe(formatted_recon, use_container_width=True, hide_index=True)
 
-        csv_bytes = df_recon.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download Monthly Reconciliation (CSV)", data=csv_bytes, file_name="Monthly_Stock_Reconciliation.csv", mime="text/csv")
+        col1, col2 = st.columns(2)
+        with col1:
+            csv_bytes = df_recon.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Monthly Reconciliation (CSV)", data=csv_bytes, file_name="Monthly_Stock_Reconciliation.csv", mime="text/csv")
+        with col2:
+            pdf_buf = generate_pdf_report(formatted_recon, "Monthly Stock Reconciliation Report")
+            st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name="Monthly_Stock_Reconciliation.pdf", mime="application/pdf")
 
     # -------------------------------------------------------------
     # VIEW 3: PLANT-WISE SUMMARY
@@ -231,6 +307,14 @@ try:
         }
         p_summary = pd.concat([p_summary, pd.DataFrame([gt_row])], ignore_index=True)
         st.dataframe(p_summary, use_container_width=True, hide_index=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            csv_bytes = p_summary.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Summary (CSV)", data=csv_bytes, file_name=f"Plant_Summary_{selected_date}.csv", mime="text/csv")
+        with col2:
+            pdf_buf = generate_pdf_report(p_summary, "Plant-wise Summary")
+            st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"Plant_Summary_{selected_date}.pdf", mime="application/pdf")
 
     # -------------------------------------------------------------
     # VIEW 4: PRODUCT-WISE SUMMARY
@@ -280,21 +364,27 @@ try:
         prod_summary = pd.concat([prod_summary, pd.DataFrame([gt_row])], ignore_index=True)
         st.dataframe(prod_summary, use_container_width=True, hide_index=True)
 
+        col1, col2 = st.columns(2)
+        with col1:
+            csv_bytes = prod_summary.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Summary (CSV)", data=csv_bytes, file_name=f"Product_Summary_{selected_date}.csv", mime="text/csv")
+        with col2:
+            pdf_buf = generate_pdf_report(prod_summary, "Product-wise Summary")
+            st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"Product_Summary_{selected_date}.pdf", mime="application/pdf")
+
     # -------------------------------------------------------------
-    # VIEW 5 & 6: INWARD / OUTWARD REGISTERS (GROUPED BY SO & ITEM SUM)
+    # VIEW 5 & 6: INWARD / OUTWARD REGISTERS
     # -------------------------------------------------------------
     elif "Inward Register" in report_type or "Outward Register" in report_type:
         direction = "Inward" if "Inward" in report_type else "Outward"
-        st.subheader(f"{'📥 Inward' if direction=='Inward' else '📤 Outward'} Register (Sales Order & SO Item Wise Grouped Sum) — As of {selected_date.strftime('%d-%b-%Y')}")
+        st.subheader(f"{'📥 Inward' if direction=='Inward' else '📤 Outward'} Register — As of {selected_date.strftime('%d-%b-%Y')}")
         
         reg_df = df_today[df_today['Movement Direction'] == direction].copy()
-        
         reg_df['Recipient'] = reg_df['Recipient'].fillna("")
         reg_df['Customer Name'] = reg_df['Customer Name'].fillna("")
         reg_df['Outer Diameter (inches)'] = pd.to_numeric(reg_df['Outer Diameter (inches)'], errors='coerce').fillna(0)
         reg_df['Thickness (mm)'] = pd.to_numeric(reg_df['Thickness (mm)'], errors='coerce').fillna(0)
 
-        # Grouping by SO and Item
         grouped_reg = reg_df.groupby(['Plnt', 'Customer Name', 'Recipient', 'TO Sales Ord.', 'TO SO item', 'Outer Diameter (inches)', 'Thickness (mm)'], as_index=False).agg(
             Nos=('No of PCS', lambda x: abs(x.sum())),
             Length_Mtr=('Total Length (Mtr )', lambda x: abs(x.sum())),
@@ -316,10 +406,9 @@ try:
         grouped_reg['NET Weight (Mt)'] = grouped_reg['Coat Weight (Mt)'].where(grouped_reg['Coat Weight (Mt)'] > 0, grouped_reg['Bare Weight (Mt)'])
         grouped_reg['Trip'] = grouped_reg['Nos']
 
-        # Bottom Total Row
         total_row = {
             'Plnt': 'TOTAL',
-            'Customer Name': '',
+            'Customer Name': 'GRAND TOTAL',
             'Destination': '',
             'Sales Doc.': '',
             'SO Item': '',
@@ -334,6 +423,14 @@ try:
         }
         display_reg = pd.concat([grouped_reg, pd.DataFrame([total_row])], ignore_index=True)
         st.dataframe(display_reg, use_container_width=True, hide_index=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            csv_bytes = display_reg.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Register (CSV)", data=csv_bytes, file_name=f"{direction}_Register_{selected_date}.csv", mime="text/csv")
+        with col2:
+            pdf_buf = generate_pdf_report(display_reg, f"{direction} Register")
+            st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"{direction}_Register_{selected_date}.pdf", mime="application/pdf")
 
     # -------------------------------------------------------------
     # VIEW 7: PIPE BALANCE REPORT
@@ -354,6 +451,14 @@ try:
             'Material Number': 'MATERIAL NUMBER'
         }, inplace=True)
         st.dataframe(bal_df, use_container_width=True, hide_index=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            csv_bytes = bal_df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Pipe Balance (CSV)", data=csv_bytes, file_name=f"Pipe_Balance_{selected_date}.csv", mime="text/csv")
+        with col2:
+            pdf_buf = generate_pdf_report(bal_df, "Carbon Steel Pipe Balance")
+            st.download_button("🖨️ Export / Print Complete Report as PDF", data=pdf_buf, file_name=f"Pipe_Balance_{selected_date}.pdf", mime="application/pdf")
 
 except Exception as e:
     st.error(f"Error executing application: {e}")
