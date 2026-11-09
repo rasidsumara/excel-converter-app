@@ -177,8 +177,8 @@ st.caption("Jindal Saw Limited - Live Inward, Outward & Inventory Management Sys
 
 @st.cache_data
 def load_raw_data():
-    file_path = "PROJECT 11 25.10 (version 2).xlsb.xlsx"
-    df_raw = pd.read_excel(file_path, sheet_name="ZMM_MB51")
+    file_path = "Inward_Outward_FIXED_and_FAST.xlsx"
+    df_raw = pd.read_excel(file_path, sheet_name="Inward-Outward Data")
     df_raw['Pstng Date'] = pd.to_datetime(df_raw['Pstng Date'], errors='coerce')
     return df_raw
 
@@ -262,7 +262,7 @@ try:
                 "Product-wise Summary",
                 "Inward Register",
                 "Outward Register",
-                "Pipe Balance Report"
+                "Carbon Steel Pipe Balance"
             ]
         )
 
@@ -270,10 +270,10 @@ try:
             st.subheader(f"📋 Daily Dispatch Print Preview — As of {selected_date.strftime('%d-%b-%Y')}")
             st.info("Note: Stock with Nos <= 0 (Zero or Negative Balance) is strictly hidden.")
 
-            in_cum = build_ddr_pivot(df_upto[df_upto['IN_OUT'] == 'IN']).rename(columns={'Val': 'Total Inward Till Date'})
-            out_cum = build_ddr_pivot(df_upto[df_upto['IN_OUT'] == 'OUT']).rename(columns={'Val': 'Total Outward Till Date'})
-            in_today = build_ddr_pivot(df_today[df_today['IN_OUT'] == 'IN']).rename(columns={'Val': 'Today IN'})
-            out_today = build_ddr_pivot(df_today[df_today['IN_OUT'] == 'OUT']).rename(columns={'Val': 'Today OUT'})
+            in_cum = build_ddr_pivot(df_upto[df_upto['Movement Direction'] == 'Inward']).rename(columns={'Val': 'Total Inward Till Date'})
+            out_cum = build_ddr_pivot(df_upto[df_upto['Movement Direction'] == 'Outward']).rename(columns={'Val': 'Total Outward Till Date'})
+            in_today = build_ddr_pivot(df_today[df_today['Movement Direction'] == 'Inward']).rename(columns={'Val': 'Today IN'})
+            out_today = build_ddr_pivot(df_today[df_today['Movement Direction'] == 'Outward']).rename(columns={'Val': 'Today OUT'})
 
             m_keys = group_cols + ['Values']
             m_ddr = in_cum.merge(out_cum, on=m_keys, how='outer')
@@ -360,8 +360,8 @@ try:
 
             for m in months:
                 m_data = df_valid[df_valid['YearMonth'] == m]
-                in_m = m_data[m_data['IN_OUT'] == 'IN']
-                out_m = m_data[m_data['IN_OUT'] == 'OUT']
+                in_m = m_data[m_data['Movement Direction'] == 'Inward']
+                out_m = m_data[m_data['Movement Direction'] == 'Outward']
 
                 in_nos = in_m['No of PCS'].sum()
                 in_mtr = in_m['Total Length (Mtr )'].sum()
@@ -396,7 +396,7 @@ try:
 
         elif "Plant-wise Summary" in sub_report:
             st.subheader(f"🏭 Plant-wise Summary — As of {selected_date.strftime('%d-%b-%Y')}")
-            plants = df_upto['Plnt'].unique()
+            plants = ['SGH1', 'SGH2', 'SGJ2', 'SGSS']
             rows = []
             for p in plants:
                 p_df = df_upto[df_upto['Plnt'] == p]
@@ -421,27 +421,48 @@ try:
 
         elif "Product-wise Summary" in sub_report:
             st.subheader(f"📦 Product-wise Summary — As of {selected_date.strftime('%d-%b-%Y')}")
-            if 'Material' in df_upto.columns:
-                materials = df_upto['Material'].dropna().unique()[:15]
-                rows = []
-                for m in materials:
-                    sub = df_upto[df_upto['Material'] == m]
-                    pcs = sub['No of PCS'].sum()
-                    length = sub['Total Length (Mtr )'].sum()
-                    coated = sub['Coated Pipe Weight(TO)'].sum()
-                    bare = sub['Bare Pipe Weight(TO)'].sum()
-                    net = coated if coated > 0 else bare
-                    rows.append({'Product Name': str(m), 'No. of Pcs': pcs, 'Length (Mtr)': length, 'Coated Weight (Mt)': coated, 'Bare Weight (Mt)': bare, 'Net Weight (Mt)': net})
-                prod_summary = pd.DataFrame(rows)
-                st.dataframe(prod_summary, use_container_width=True, hide_index=True)
-            else:
-                st.info("Material column not found.")
+            buckets = ['Carbon Steel', 'SEAM PIPE', 'SS WELDED', 'ss cutting plate', 'SS RESALE', 'Coating Jobwork', 'J_BARE_PIPE_MTR']
+            rows = []
+            for b in buckets:
+                if b == 'J_BARE_PIPE_MTR':
+                    sub = df_upto[df_upto['Material'] == 'J_BARE_PIPE_MTR']
+                elif b == 'Coating Jobwork':
+                    sub = df_upto[df_upto['Valuation Class'].str.contains('Jobwork', case=False, na=False)]
+                elif b == 'SEAM PIPE':
+                    sub = df_upto[df_upto['Material'].str.contains('SEAM', case=False, na=False)]
+                elif b == 'SS WELDED':
+                    sub = df_upto[df_upto['Material'].str.contains('WELD', case=False, na=False)]
+                elif b == 'ss cutting plate':
+                    sub = df_upto[df_upto['Material'].str.contains('PLATE', case=False, na=False)]
+                elif b == 'SS RESALE':
+                    sub = df_upto[df_upto['Material'].str.contains('RESALE', case=False, na=False)]
+                else:
+                    sub = df_upto[~df_upto['Valuation Class'].str.contains('Jobwork', case=False, na=False)]
+                
+                pcs = sub['No of PCS'].sum()
+                length = sub['Total Length (Mtr )'].sum()
+                coated = sub['Coated Pipe Weight(TO)'].sum()
+                bare = sub['Bare Pipe Weight(TO)'].sum()
+                net = coated if coated > 0 else bare
+                rows.append({'Product Name': b, 'No. of Pcs': pcs, 'Length (Mtr)': length, 'Coated Weight (Mt)': coated, 'Bare Weight (Mt)': bare, 'Net Weight (Mt)': net})
+            prod_summary = pd.DataFrame(rows)
+            gt_row = {'Product Name': 'GRAND TOTAL', 'No. of Pcs': prod_summary['No. of Pcs'].sum(), 'Length (Mtr)': prod_summary['Length (Mtr)'].sum(), 'Coated Weight (Mt)': prod_summary['Coated Weight (Mt)'].sum(), 'Bare Weight (Mt)': prod_summary['Bare Weight (Mt)'].sum(), 'Net Weight (Mt)': prod_summary['Net Weight (Mt)'].sum()}
+            prod_summary = pd.concat([prod_summary, pd.DataFrame([gt_row])], ignore_index=True)
+            st.dataframe(prod_summary, use_container_width=True, hide_index=True)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                excel_buf = generate_excel_report(prod_summary, "Product-wise Summary", selected_date)
+                st.download_button("📥 Download Excel (.xlsx)", data=excel_buf, file_name=f"Product_Summary_{selected_date}.xlsx")
+            with col2:
+                pdf_buf = generate_pdf_report(prod_summary, "Product-wise Summary", selected_date)
+                st.download_button("🖨️ Export PDF", data=pdf_buf, file_name=f"Product_Summary_{selected_date}.pdf")
 
         elif "Inward Register" in sub_report or "Outward Register" in sub_report:
-            direction = "IN" if "Inward" in sub_report else "OUT"
-            st.subheader(f"{'📥 Inward' if direction=='IN' else '📤 Outward'} Register — As of {selected_date.strftime('%d-%b-%Y')}")
+            direction = "Inward" if "Inward" in sub_report else "Outward"
+            st.subheader(f"{'📥 Inward' if direction=='Inward' else '📤 Outward'} Register — As of {selected_date.strftime('%d-%b-%Y')}")
             
-            reg_df = df_today[df_today['IN_OUT'] == direction].copy()
+            reg_df = df_today[df_today['Movement Direction'] == direction].copy()
             reg_df['Recipient'] = reg_df['Recipient'].fillna("")
             reg_df['Customer Name'] = reg_df['Customer Name'].fillna("")
             reg_df['Outer Diameter (inches)'] = pd.to_numeric(reg_df['Outer Diameter (inches)'], errors='coerce').fillna(0)
@@ -471,8 +492,8 @@ try:
                 pdf_buf = generate_pdf_report(display_reg, f"{direction} Register", selected_date)
                 st.download_button("🖨️ Export PDF", data=pdf_buf, file_name=f"{direction}_Register_{selected_date}.pdf")
 
-        elif "Pipe Balance Report" in sub_report:
-            st.subheader(f"📦 Pipe Balance Report — As of {selected_date.strftime('%d-%b-%Y')}")
+        elif "Carbon Steel Pipe Balance" in sub_report:
+            st.subheader(f"📦 Carbon Steel Pipe Balance — As of {selected_date.strftime('%d-%b-%Y')}")
             bal_df = df_upto.groupby(['Customer Name', 'TO Sales Ord.', 'TO SO item', 'OD', 'Thickness (mm)', 'Material Number'], as_index=False).agg(
                 NOS=('No of PCS', 'sum'),
                 MTR=('Total Length (Mtr )', 'sum'),
@@ -485,10 +506,10 @@ try:
 
             col1, col2 = st.columns(2)
             with col1:
-                excel_buf = generate_excel_report(bal_df, "Pipe Balance Report", selected_date)
+                excel_buf = generate_excel_report(bal_df, "Carbon Steel Pipe Balance", selected_date)
                 st.download_button("📥 Download Excel (.xlsx)", data=excel_buf, file_name=f"Pipe_Balance_{selected_date}.xlsx")
             with col2:
-                pdf_buf = generate_pdf_report(bal_df, "Pipe Balance Report", selected_date)
+                pdf_buf = generate_pdf_report(bal_df, "Carbon Steel Pipe Balance", selected_date)
                 st.download_button("🖨️ Export PDF", data=pdf_buf, file_name=f"Pipe_Balance_{selected_date}.pdf")
 
     # -------------------------------------------------------------
@@ -497,12 +518,9 @@ try:
     elif "1. Balance Report" in main_menu:
         st.subheader("⚖️ Balance Report Overview")
         st.info("Aapka Balance Report yahan display hoga.")
-        
-        # Example summary view for balance report
         bal_summary = df_upto.groupby(['Customer Name', 'Plnt'], as_index=False).agg(
             Total_PCS=('No of PCS', 'sum'),
-            Total_Length=('Total Length (Mtr )', 'sum'),
-            Total_Weight=('Bare Pipe Weight(TO', lambda x: x.sum() if 'Bare Pipe Weight(TO' in df_upto.columns else 0)
+            Total_Length=('Total Length (Mtr )', 'sum')
         )
         st.dataframe(bal_summary, use_container_width=True, hide_index=True)
 
@@ -512,14 +530,12 @@ try:
     elif "2. Invoice Report" in main_menu:
         st.subheader("📄 Invoice Report Overview")
         st.info("Aapka Invoice Report yahan display hoga.")
-        
-        # Example summary view for invoice report based on billing/accounting columns
-        if 'Accouting Document' in df_upto.columns:
-            inv_df = df_upto[df_upto['Accouting Document'].notna()].copy()
-            st.dataframe(inv_df[['Pstng Date', 'Customer Name', 'TO Sales Ord.', 'Accouting Document', 'Material']].head(100), use_container_width=True, hide_index=True)
+        if 'Reference' in df_upto.columns:
+            inv_df = df_upto[df_upto['Reference'].notna()].copy()
+            st.dataframe(inv_df[['Pstng Date', 'Customer Name', 'TO Sales Ord.', 'Reference', 'Material']].head(100), use_container_width=True, hide_index=True)
         else:
-            st.warning("Invoice/Accounting Document columns not available.")
+            st.warning("Reference columns not available.")
 
 except Exception as e:
     st.error(f"Error executing application: {e}")
-    st.info("Ensure `PROJECT 11 25.10 (version 2).xlsb.xlsx` is uploaded in the GitHub repository root folder.")
+    st.info("Ensure `Inward_Outward_FIXED_and_FAST.xlsx` is uploaded in the GitHub repository root folder.")
