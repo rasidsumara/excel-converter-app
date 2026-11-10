@@ -11,9 +11,6 @@ from reportlab.lib.pagesizes import letter, landscape
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from docx import Document
-from docx.shared import Inches, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # Page Configuration
 st.set_page_config(
@@ -174,79 +171,6 @@ def generate_pdf_report(df_to_pdf, title_text, selected_date):
     return buffer
 
 # -------------------------------------------------------------
-# PRO WORD DOC GENERATION HELPER
-# -------------------------------------------------------------
-def generate_pro_word_report(total_in, total_out, net_inv, tonnage, selected_date):
-    doc = Document()
-    
-    # Title
-    p = doc.add_paragraph()
-    run = p.add_run("RIS LTD - EXECUTIVE LOGISTICS & INVENTORY REPORT")
-    run.font.name = 'Calibri'
-    run.font.size = Pt(18)
-    run.font.bold = True
-    run.font.color.rgb = RGBColor(11, 37, 69)
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    # Subtitle
-    p2 = doc.add_paragraph()
-    run2 = p2.add_run(f"Generated On: {selected_date.strftime('%d-%b-%Y')} | Status: Official Executive Summary")
-    run2.font.name = 'Calibri'
-    run2.font.size = Pt(11)
-    run2.font.italic = True
-    p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    doc.add_heading("1. Executive Summary", level=1)
-    p_desc = doc.add_paragraph(
-        "This pro-type executive report provides a comprehensive overview of the supply chain movement, "
-        "SAP MB51 transaction tracking, and active inventory status for RIS LTD. All metrics reflect cumulative "
-        "operations up to the selected cut-off date."
-    )
-    p_desc.style.font.name = 'Calibri'
-    p_desc.style.font.size = Pt(11)
-    
-    doc.add_heading("2. Key Performance Indicators (KPIs)", level=1)
-    table = doc.add_table(rows=5, cols=2)
-    table.style = 'Table Grid'
-    
-    hdr_cells = table.rows[0].cells
-    hdr_cells[0].text = "Metric Description"
-    hdr_cells[1].text = "Operational Value"
-    for cell in hdr_cells:
-        for paragraph in cell.paragraphs:
-            for run in paragraph.runs:
-                run.font.bold = True
-                run.font.color.rgb = RGBColor(255, 255, 255)
-        cell.paragraphs[0].runs[0].font.name = 'Calibri'
-        
-    data = [
-        ("Total Inward Volume (Pcs)", f"{total_in:,.0f}"),
-        ("Total Outward Volume (Pcs)", f"{total_out:,.0f}"),
-        ("Net Active Inventory Balance (Pcs)", f"{net_inv:,.0f}"),
-        ("Total Handled Tonnage (MT)", f"{tonnage:,.2f} MT")
-    ]
-    
-    for i, (metric, val) in enumerate(data, start=1):
-        row_cells = table.rows[i].cells
-        row_cells[0].text = metric
-        row_cells[1].text = val
-        for cell in row_cells:
-            cell.paragraphs[0].runs[0].font.name = 'Calibri'
-            
-    doc.add_heading("3. Operational Notes & Recommendations", level=1)
-    p_rec = doc.add_paragraph(
-        "• Regular reconciliation between SAP movement types (IN and OUT) ensures zero discrepancy in stock reporting.\n"
-        "• Positive balance screening isolates active stock, improving dispatch planning accuracy.\n"
-        "• Use the integrated Google Sheets sync feature for real-time stakeholder collaboration."
-    )
-    p_rec.style.font.name = 'Calibri'
-    
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
-
-# -------------------------------------------------------------
 # SMART AUTOMATIC FILE DETECTION & DATA LOADER
 # -------------------------------------------------------------
 @st.cache_data
@@ -381,17 +305,6 @@ try:
 
     with tab_sap:
         st.subheader("📊 SAP Detailed Reports & Pro Daily Dispatch System")
-        
-        # Pro Report Export Button at Top of SAP Tab
-        pro_doc_buf = generate_pro_word_report(total_in_pcs, total_out_pcs, net_pcs, total_tonnage, selected_date)
-        st.download_button(
-            "📄 Export Pro Executive Report (.docx)", 
-            data=pro_doc_buf, 
-            file_name=f"RIS_LTD_Pro_Report_{selected_date}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-        st.markdown("---")
-
         sub_report = st.selectbox(
             "Select SAP Report View:",
             [
