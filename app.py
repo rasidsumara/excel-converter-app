@@ -11,10 +11,13 @@ from reportlab.lib.pagesizes import letter, landscape
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # Page Configuration
 st.set_page_config(
-    page_title="Jindal Saw - Dynamic Logistics & Inventory Dashboard",
+    page_title="RIS LTD - Pro Logistics & Inventory Control Center",
     page_icon="📊",
     layout="wide"
 )
@@ -29,7 +32,7 @@ def check_password():
     if st.session_state["password_correct"]:
         return True
 
-    st.title("🔒 Management Report - Secure Access")
+    st.title("🔒 RIS LTD - Secure Enterprise Access")
     st.subheader("Kripya App me access karne ke liye Password daalein:")
     
     user_password = st.text_input("Password:", type="password", key="password_input")
@@ -86,7 +89,7 @@ def generate_excel_report(df_to_excel, title_text, selected_date):
     thin_border = Border(left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'), top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9'))
 
     ws.merge_cells('A1:M1')
-    ws['A1'] = f"JINDAL SAW LIMITED — {title_text.upper()}"
+    ws['A1'] = f"RIS LTD — {title_text.upper()}"
     ws['A1'].font = title_font
     ws['A1'].fill = title_fill
     ws['A1'].alignment = Alignment(horizontal='center', vertical='center')
@@ -138,7 +141,7 @@ def generate_pdf_report(df_to_pdf, title_text, selected_date):
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=12, leading=14, textColor=colors.HexColor('#0B2545'))
     
-    elements.append(Paragraph(f"<b>JINDAL SAW LIMITED</b> - {title_text}", title_style))
+    elements.append(Paragraph(f"<b>RIS LTD</b> - {title_text}", title_style))
     elements.append(Paragraph(f"Report Date: {selected_date.strftime('%d-%b-%Y')}", styles['Normal']))
     elements.append(Spacer(1, 8))
     
@@ -171,6 +174,79 @@ def generate_pdf_report(df_to_pdf, title_text, selected_date):
     return buffer
 
 # -------------------------------------------------------------
+# PRO WORD DOC GENERATION HELPER
+# -------------------------------------------------------------
+def generate_pro_word_report(total_in, total_out, net_inv, tonnage, selected_date):
+    doc = Document()
+    
+    # Title
+    p = doc.add_paragraph()
+    run = p.add_run("RIS LTD - EXECUTIVE LOGISTICS & INVENTORY REPORT")
+    run.font.name = 'Calibri'
+    run.font.size = Pt(18)
+    run.font.bold = True
+    run.font.color.rgb = RGBColor(11, 37, 69)
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Subtitle
+    p2 = doc.add_paragraph()
+    run2 = p2.add_run(f"Generated On: {selected_date.strftime('%d-%b-%Y')} | Status: Official Executive Summary")
+    run2.font.name = 'Calibri'
+    run2.font.size = Pt(11)
+    run2.font.italic = True
+    p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    doc.add_heading("1. Executive Summary", level=1)
+    p_desc = doc.add_paragraph(
+        "This pro-type executive report provides a comprehensive overview of the supply chain movement, "
+        "SAP MB51 transaction tracking, and active inventory status for RIS LTD. All metrics reflect cumulative "
+        "operations up to the selected cut-off date."
+    )
+    p_desc.style.font.name = 'Calibri'
+    p_desc.style.font.size = Pt(11)
+    
+    doc.add_heading("2. Key Performance Indicators (KPIs)", level=1)
+    table = doc.add_table(rows=5, cols=2)
+    table.style = 'Table Grid'
+    
+    hdr_cells = table.rows[0].cells
+    hdr_cells[0].text = "Metric Description"
+    hdr_cells[1].text = "Operational Value"
+    for cell in hdr_cells:
+        for paragraph in cell.paragraphs:
+            for run in paragraph.runs:
+                run.font.bold = True
+                run.font.color.rgb = RGBColor(255, 255, 255)
+        cell.paragraphs[0].runs[0].font.name = 'Calibri'
+        
+    data = [
+        ("Total Inward Volume (Pcs)", f"{total_in:,.0f}"),
+        ("Total Outward Volume (Pcs)", f"{total_out:,.0f}"),
+        ("Net Active Inventory Balance (Pcs)", f"{net_inv:,.0f}"),
+        ("Total Handled Tonnage (MT)", f"{tonnage:,.2f} MT")
+    ]
+    
+    for i, (metric, val) in enumerate(data, start=1):
+        row_cells = table.rows[i].cells
+        row_cells[0].text = metric
+        row_cells[1].text = val
+        for cell in row_cells:
+            cell.paragraphs[0].runs[0].font.name = 'Calibri'
+            
+    doc.add_heading("3. Operational Notes & Recommendations", level=1)
+    p_rec = doc.add_paragraph(
+        "• Regular reconciliation between SAP movement types (IN and OUT) ensures zero discrepancy in stock reporting.\n"
+        "• Positive balance screening isolates active stock, improving dispatch planning accuracy.\n"
+        "• Use the integrated Google Sheets sync feature for real-time stakeholder collaboration."
+    )
+    p_rec.style.font.name = 'Calibri'
+    
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+# -------------------------------------------------------------
 # SMART AUTOMATIC FILE DETECTION & DATA LOADER
 # -------------------------------------------------------------
 @st.cache_data
@@ -194,13 +270,9 @@ def load_raw_data():
                 break
                 
     if not file_path:
-        raise FileNotFoundError("GitHub repository me koi bhi Excel file nahi mili. Kripya file upload karein.")
+        raise FileNotFoundError("GitHub repository me koi bhi Excel file nahi mili.")
         
-    # Sheet name detection
-    if "PROJECT 11" in file_path:
-        sheet_name = "ZMM_MB51"
-    else:
-        sheet_name = "Inward-Outward Data"
+    sheet_name = "ZMM_MB51" if "PROJECT 11" in file_path else "Inward-Outward Data"
         
     df_raw = pd.read_excel(file_path, sheet_name=sheet_name)
     df_raw['Pstng Date'] = pd.to_datetime(df_raw['Pstng Date'], errors='coerce')
@@ -209,8 +281,8 @@ def load_raw_data():
 # -------------------------------------------------------------
 # MAIN APPLICATION CODE
 # -------------------------------------------------------------
-st.title("📊 Jindal Saw - Dynamic Logistics & Inventory Control Dashboard")
-st.caption("Advanced SAP MB51 Analytics, Dispatch Reconciliation & Stock Control System")
+st.title("📊 RIS LTD - Pro Logistics & Inventory Control Center")
+st.caption("Enterprise SAP MB51 Analytics, Dispatch Reconciliation & Pro Reporting System")
 
 try:
     df_raw = load_raw_data()
@@ -220,7 +292,7 @@ try:
     max_date = valid_dates.max().date() if not valid_dates.empty else datetime.date.today()
 
     # Sidebar Controls & Global Filters
-    st.sidebar.header("⚙️ Dashboard Controls & Filters")
+    st.sidebar.header("⚙️ Pro Dashboard Controls")
     
     selected_date = st.sidebar.date_input(
         "📅 Select Cut-off Date:",
@@ -308,7 +380,18 @@ try:
             st.dataframe(inv_df[['Pstng Date', 'Customer Name', 'TO Sales Ord.', inv_col, 'Material', 'No of PCS']].head(200), use_container_width=True, hide_index=True)
 
     with tab_sap:
-        st.subheader("📊 SAP Detailed Reports & Daily Dispatch System")
+        st.subheader("📊 SAP Detailed Reports & Pro Daily Dispatch System")
+        
+        # Pro Report Export Button at Top of SAP Tab
+        pro_doc_buf = generate_pro_word_report(total_in_pcs, total_out_pcs, net_pcs, total_tonnage, selected_date)
+        st.download_button(
+            "📄 Export Pro Executive Report (.docx)", 
+            data=pro_doc_buf, 
+            file_name=f"RIS_LTD_Pro_Report_{selected_date}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        st.markdown("---")
+
         sub_report = st.selectbox(
             "Select SAP Report View:",
             [
@@ -321,7 +404,255 @@ try:
                 "Carbon Steel Pipe Balance"
             ]
         )
-        st.info(f"Selected View: {sub_report}")
+
+        group_cols = ['Plnt', 'Customer Name', 'TO Sales Ord.', 'TO SO item', 'Valuation Class', 'OD', 'Thickness (mm)']
+        for c in group_cols:
+            df_upto[c] = df_upto[c].fillna("").astype(str)
+            df_today[c] = df_today[c].fillna("").astype(str)
+
+        metric_order = [
+            'Sum of No of PCS',
+            'Sum of Total Length (Mtr )',
+            'Sum of Bare Pipe Weight(TO)',
+            'Sum of Coated Pipe Weight(TO)'
+        ]
+
+        def build_ddr_pivot(base_df):
+            metrics = [
+                ('No of PCS', 'Sum of No of PCS'),
+                ('Total Length (Mtr )', 'Sum of Total Length (Mtr )'),
+                ('Bare Pipe Weight(TO)', 'Sum of Bare Pipe Weight(TO)'),
+                ('Coated Pipe Weight(TO)', 'Sum of Coated Pipe Weight(TO)')
+            ]
+            list_dfs = []
+            for col_name, label in metrics:
+                if col_name in base_df.columns:
+                    t = base_df.groupby(group_cols, as_index=False)[col_name].sum()
+                    t['Values'] = label
+                    t['Val'] = t[col_name]
+                    list_dfs.append(t[group_cols + ['Values', 'Val']])
+            
+            if not list_dfs:
+                return pd.DataFrame()
+            return pd.concat(list_dfs, ignore_index=True)
+
+        if "Daily Dispatch Report" in sub_report:
+            st.info("Note: Stock with Nos <= 0 (Zero or Negative Balance) is strictly hidden.")
+
+            in_cum = build_ddr_pivot(df_upto[df_upto['IN_OUT'] == 'IN']).rename(columns={'Val': 'Total Inward Till Date'})
+            out_cum = build_ddr_pivot(df_upto[df_upto['IN_OUT'] == 'OUT']).rename(columns={'Val': 'Total Outward Till Date'})
+            in_today = build_ddr_pivot(df_today[df_today['IN_OUT'] == 'IN']).rename(columns={'Val': 'Today IN'})
+            out_today = build_ddr_pivot(df_today[df_today['IN_OUT'] == 'OUT']).rename(columns={'Val': 'Today OUT'})
+
+            m_keys = group_cols + ['Values']
+            m_ddr = in_cum.merge(out_cum, on=m_keys, how='outer')
+            m_ddr = m_ddr.merge(in_today, on=m_keys, how='left')
+            m_ddr = m_ddr.merge(out_today, on=m_keys, how='left')
+            m_ddr.fillna(0, inplace=True)
+
+            m_ddr['Balance'] = m_ddr['Total Inward Till Date'] + m_ddr['Total Outward Till Date']
+
+            pcs_m = m_ddr[m_ddr['Values'] == 'Sum of No of PCS']
+            strictly_positive_keys = pcs_m[pcs_m['Balance'] > 0][group_cols]
+
+            if not strictly_positive_keys.empty:
+                res_df = m_ddr.merge(strictly_positive_keys, on=group_cols)
+            else:
+                res_df = pd.DataFrame(columns=m_ddr.columns)
+
+            res_df['Values_Cat'] = pd.Categorical(res_df['Values'], categories=metric_order, ordered=True)
+            res_df.sort_values(by=group_cols + ['Values_Cat'], inplace=True)
+
+            disp_cols = group_cols + ['Values', 'Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']
+            
+            total_rows = []
+            for v in metric_order:
+                sub_v = res_df[res_df['Values'] == v]
+                t_row = {
+                    'Plnt': 'TOTAL',
+                    'Customer Name': 'GRAND TOTAL',
+                    'TO Sales Ord.': '',
+                    'TO SO item': '',
+                    'Valuation Class': '',
+                    'OD': '',
+                    'Thickness (mm)': '',
+                    'Values': v,
+                    'Today IN': sub_v['Today IN'].sum(),
+                    'Total Inward Till Date': sub_v['Total Inward Till Date'].sum(),
+                    'Today OUT': sub_v['Today OUT'].sum(),
+                    'Total Outward Till Date': sub_v['Total Outward Till Date'].sum(),
+                    'Balance': sub_v['Balance'].sum()
+                }
+                total_rows.append(t_row)
+
+            df_totals = pd.DataFrame(total_rows)
+            res_df_with_total = pd.concat([res_df[disp_cols], df_totals], ignore_index=True)
+
+            formatted_df = res_df_with_total.copy()
+            num_fields = ['Today IN', 'Total Inward Till Date', 'Today OUT', 'Total Outward Till Date', 'Balance']
+            for col in num_fields:
+                formatted_df[col] = formatted_df[col].apply(lambda x: "-" if abs(x) < 1e-4 else f"{x:,.2f}")
+
+            st.dataframe(formatted_df, use_container_width=True, hide_index=True)
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                excel_buf = generate_excel_report(res_df_with_total, "Daily Dispatch Print Preview", selected_date)
+                st.download_button("📥 Download Excel (.xlsx)", data=excel_buf, file_name=f"DDR_Positive_Balance_{selected_date}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            with col2:
+                pdf_buf = generate_pdf_report(formatted_df, "Daily Dispatch Print Preview", selected_date)
+                st.download_button("🖨️ Export PDF", data=pdf_buf, file_name=f"DDR_Report_{selected_date}.pdf", mime="application/pdf")
+            with col3:
+                script_url = st.text_input(
+                    "Google Apps Script Web App URL:", 
+                    value="https://script.google.com/macros/s/AKfycbw9-__MUdrsLW7TqQhzMJwd36gOYPDsQXm31b5QGFyYqh_A5NUDLup8zXnPRMwsoX7s/exec"
+                )
+                if st.button("☁️ Sync to Google Sheet"):
+                    if script_url:
+                        success, msg = sync_to_google_sheet_via_script(res_df_with_total, script_url)
+                        if success:
+                            st.success("Successfully synced to Google Sheet!")
+                        else:
+                            st.error(f"Sync failed: {msg}")
+                    else:
+                        st.warning("Pehle Web App URL daalein.")
+
+        elif "Monthly Stock Reconciliation" in sub_report:
+            df_raw['Effective_WT'] = df_raw['Coated Pipe Weight(TO)'].where(df_raw['Coated Pipe Weight(TO)'] > 0, df_raw['Bare Pipe Weight(TO)'])
+            df_valid = df_raw.dropna(subset=['Pstng Date']).copy()
+            df_valid['YearMonth'] = df_valid['Pstng Date'].dt.to_period('M')
+
+            months = sorted(df_valid['YearMonth'].unique())
+            recon_rows = []
+            open_nos, open_mtr, open_mt = 0.0, 0.0, 0.0
+
+            for m in months:
+                m_data = df_valid[df_valid['YearMonth'] == m]
+                in_m = m_data[m_data['IN_OUT'] == 'IN']
+                out_m = m_data[m_data['IN_OUT'] == 'OUT']
+
+                in_nos = in_m['No of PCS'].sum()
+                in_mtr = in_m['Total Length (Mtr )'].sum()
+                in_mt = in_m['Effective_WT'].sum()
+
+                out_nos = abs(out_m['No of PCS'].sum())
+                out_mtr = abs(out_m['Total Length (Mtr )'].sum())
+                out_mt = abs(out_m['Effective_WT'].sum())
+
+                close_nos = open_nos + in_nos - out_nos
+                close_mtr = open_mtr + in_mtr - out_mtr
+                close_mt = open_mt + in_mt - out_mt
+
+                recon_rows.append({
+                    'Month': str(m), 'Opening Nos': open_nos, 'Opening Mtr': open_mtr, 'Opening MT': open_mt,
+                    'IN Nos': in_nos, 'IN Mtr': in_mtr, 'IN MT': in_mt,
+                    'OUT Nos': out_nos, 'OUT Mtr': out_mtr, 'OUT MT': out_mt,
+                    'Closing Nos': close_nos, 'Closing Mtr': close_mtr, 'Closing MT': close_mt
+                })
+                open_nos, open_mtr, open_mt = close_nos, close_mtr, close_mt
+
+            df_recon = pd.DataFrame(recon_rows)
+            st.dataframe(df_recon, use_container_width=True, hide_index=True)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                excel_buf = generate_excel_report(df_recon, "Monthly Stock Reconciliation", selected_date)
+                st.download_button("📥 Download Excel (.xlsx)", data=excel_buf, file_name="Monthly_Stock_Reconciliation.xlsx")
+            with col2:
+                pdf_buf = generate_pdf_report(df_recon, "Monthly Stock Reconciliation Report", selected_date)
+                st.download_button("🖨️ Export PDF", data=pdf_buf, file_name="Monthly_Stock_Reconciliation.pdf")
+
+        elif "Plant-wise Summary" in sub_report:
+            plants = df_upto['Plnt'].unique()
+            rows = []
+            for p in plants:
+                p_df = df_upto[df_upto['Plnt'] == p]
+                pcs = p_df['No of PCS'].sum()
+                length = p_df['Total Length (Mtr )'].sum()
+                coated = p_df['Coated Pipe Weight(TO)'].sum()
+                bare = p_df['Bare Pipe Weight(TO)'].sum()
+                net = coated if coated > 0 else bare
+                rows.append({'Plant Name': p, 'No. of Pcs': pcs, 'Length (Mtr)': length, 'Coated Weight (Mt)': coated, 'Bare Weight (Mt)': bare, 'Net Weight (Mt)': net})
+            p_summary = pd.DataFrame(rows)
+            gt_row = {'Plant Name': 'GRAND TOTAL', 'No. of Pcs': p_summary['No. of Pcs'].sum(), 'Length (Mtr)': p_summary['Length (Mtr)'].sum(), 'Coated Weight (Mt)': p_summary['Coated Weight (Mt)'].sum(), 'Bare Weight (Mt)': p_summary['Bare Weight (Mt)'].sum(), 'Net Weight (Mt)': p_summary['Net Weight (Mt)'].sum()}
+            p_summary = pd.concat([p_summary, pd.DataFrame([gt_row])], ignore_index=True)
+            st.dataframe(p_summary, use_container_width=True, hide_index=True)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                excel_buf = generate_excel_report(p_summary, "Plant-wise Summary", selected_date)
+                st.download_button("📥 Download Excel (.xlsx)", data=excel_buf, file_name=f"Plant_Summary_{selected_date}.xlsx")
+            with col2:
+                pdf_buf = generate_pdf_report(p_summary, "Plant-wise Summary", selected_date)
+                st.download_button("🖨️ Export PDF", data=pdf_buf, file_name=f"Plant_Summary_{selected_date}.pdf")
+
+        elif "Product-wise Summary" in sub_report:
+            if 'Material' in df_upto.columns:
+                materials = df_upto['Material'].dropna().unique()[:15]
+                rows = []
+                for m in materials:
+                    sub = df_upto[df_upto['Material'] == m]
+                    pcs = sub['No of PCS'].sum()
+                    length = sub['Total Length (Mtr )'].sum()
+                    coated = sub['Coated Pipe Weight(TO)'].sum()
+                    bare = sub['Bare Pipe Weight(TO)'].sum()
+                    net = coated if coated > 0 else bare
+                    rows.append({'Product Name': str(m), 'No. of Pcs': pcs, 'Length (Mtr)': length, 'Coated Weight (Mt)': coated, 'Bare Weight (Mt)': bare, 'Net Weight (Mt)': net})
+                prod_summary = pd.DataFrame(rows)
+                st.dataframe(prod_summary, use_container_width=True, hide_index=True)
+            else:
+                st.info("Material column not found.")
+
+        elif "Inward Register" in sub_report or "Outward Register" in sub_report:
+            direction = "IN" if "Inward" in sub_report else "OUT"
+            reg_df = df_today[df_today['IN_OUT'] == direction].copy()
+            reg_df['Recipient'] = reg_df['Recipient'].fillna("")
+            reg_df['Customer Name'] = reg_df['Customer Name'].fillna("")
+            reg_df['Outer Diameter (inches)'] = pd.to_numeric(reg_df['Outer Diameter (inches)'], errors='coerce').fillna(0)
+            reg_df['Thickness (mm)'] = pd.to_numeric(reg_df['Thickness (mm)'], errors='coerce').fillna(0)
+
+            grouped_reg = reg_df.groupby(['Plnt', 'Customer Name', 'Recipient', 'TO Sales Ord.', 'TO SO item', 'Outer Diameter (inches)', 'Thickness (mm)'], as_index=False).agg(
+                Nos=('No of PCS', lambda x: abs(x.sum())),
+                Length_Mtr=('Total Length (Mtr )', lambda x: abs(x.sum())),
+                Coat_Weight=('Coated Pipe Weight(TO)', lambda x: abs(x.sum())),
+                Bare_Weight=('Bare Pipe Weight(TO)', lambda x: abs(x.sum()))
+            )
+
+            grouped_reg = grouped_reg[grouped_reg['Nos'] > 0].copy()
+            grouped_reg.rename(columns={'Recipient': 'Destination', 'TO Sales Ord.': 'Sales Doc.', 'TO SO item': 'SO Item', 'Outer Diameter (inches)': 'OD (inch)', 'Thickness (mm)': 'Thickness (mm)', 'Length_Mtr': 'Length (Mtr)', 'Coat_Weight': 'Coat Weight (Mt)', 'Bare_Weight': 'Bare Weight (Mt)'}, inplace=True)
+            grouped_reg['NET Weight (Mt)'] = grouped_reg['Coat Weight (Mt)'].where(grouped_reg['Coat Weight (Mt)'] > 0, grouped_reg['Bare Weight (Mt)'])
+            grouped_reg['Trip'] = grouped_reg['Nos']
+
+            total_row = {'Plnt': 'TOTAL', 'Customer Name': 'GRAND TOTAL', 'Destination': '', 'Sales Doc.': '', 'SO Item': '', 'OD (inch)': '', 'Thickness (mm)': '', 'Nos': grouped_reg['Nos'].sum(), 'Length (Mtr)': grouped_reg['Length (Mtr)'].sum(), 'Coat Weight (Mt)': grouped_reg['Coat Weight (Mt)'].sum(), 'Bare Weight (Mt)': grouped_reg['Bare Weight (Mt)'].sum(), 'NET Weight (Mt)': grouped_reg['NET Weight (Mt)'].sum(), 'Trip': grouped_reg['Trip'].sum()}
+            display_reg = pd.concat([grouped_reg, pd.DataFrame([total_row])], ignore_index=True)
+            st.dataframe(display_reg, use_container_width=True, hide_index=True)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                excel_buf = generate_excel_report(display_reg, f"{direction} Register", selected_date)
+                st.download_button("📥 Download Excel (.xlsx)", data=excel_buf, file_name=f"{direction}_Register_{selected_date}.xlsx")
+            with col2:
+                pdf_buf = generate_pdf_report(display_reg, f"{direction} Register", selected_date)
+                st.download_button("🖨️ Export PDF", data=pdf_buf, file_name=f"{direction}_Register_{selected_date}.pdf")
+
+        elif "Carbon Steel Pipe Balance" in sub_report:
+            bal_df = df_upto.groupby(['Customer Name', 'TO Sales Ord.', 'TO SO item', 'OD', 'Thickness (mm)', 'Material Number'], as_index=False).agg(
+                NOS=('No of PCS', 'sum'),
+                MTR=('Total Length (Mtr )', 'sum'),
+                MT=('Bare Pipe Weight(TO)', 'sum')
+            )
+            bal_cz = bal_df[bal_df['NOS'] > 0].copy()
+            bal_cz.rename(columns={'Customer Name': 'CUST NAME', 'TO Sales Ord.': 'S.O. NUMBER', 'TO SO item': 'SO ITEM', 'OD': 'OD(MM)', 'Thickness (mm)': 'THK', 'Material Number': 'MATERIAL NUMBER'}, inplace=True)
+
+            st.dataframe(bal_cz, use_container_width=True, hide_index=True)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                excel_buf = generate_excel_report(bal_cz, "Carbon Steel Pipe Balance", selected_date)
+                st.download_button("📥 Download Excel (.xlsx)", data=excel_buf, file_name=f"Pipe_Balance_{selected_date}.xlsx")
+            with col2:
+                pdf_buf = generate_pdf_report(bal_cz, "Carbon Steel Pipe Balance", selected_date)
+                st.download_button("🖨️ Export PDF", data=pdf_buf, file_name=f"Pipe_Balance_{selected_date}.pdf")
 
 except Exception as e:
     st.error(f"Error executing application: {e}")
